@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { CommandRole, RoleType } from '../types';
 import RoleCard from './RoleCard';
-import { ShieldCheck, Info, UserCheck, Layers, Sparkles } from 'lucide-react';
+import { ShieldCheck, Info, UserCheck, Layers, Sparkles, Sliders } from 'lucide-react';
 import { useCms } from '../context/CmsContext';
 
 interface RoleSelectionProps {
@@ -155,6 +155,17 @@ export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, 
               {scopeLabel} • {config.stateName || 'Andhra Pradesh'}
             </p>
           </div>
+        </div>
+        <div className="flex items-center gap-2 self-end sm:self-auto">
+          <button
+            onClick={() => {
+              window.location.hash = '/cms';
+            }}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-700 hover:text-slate-900 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer bg-slate-50 hover:bg-slate-100"
+          >
+            <Sliders className="w-3.5 h-3.5 text-slate-700" />
+            <span>CMS Studio</span>
+          </button>
         </div>
       </div>
 

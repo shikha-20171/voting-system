@@ -386,8 +386,8 @@ export default function App() {
 
   return (
     <div className={`${isDashboardActive ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-gray-50 text-gray-900 flex flex-col justify-between selection:bg-yellow-200`}>
-      {/* Top Quick Switcher Navigator when in App (hidden on landing & cms) */}
-      {isPartyCreated && !isLandingRoute && currentPath !== '/cms' && (
+      {/* Top Quick Switcher Navigator: hidden on landing, cms, and roles selection page */}
+      {isPartyCreated && !isLandingRoute && !isRolesRoute && currentPath !== '/cms' && (
         <RoleQuickSwitcher
           currentRole={activeSession?.role}
           currentPath={currentPath}
@@ -399,19 +399,19 @@ export default function App() {
         />
       )}
 
-      {!isLandingRoute && currentPath !== '/cms' && (
+      {!isLandingRoute && !isRolesRoute && currentPath !== '/cms' && (
         <div className="h-1 w-full shrink-0 transition-colors duration-300" style={{ backgroundColor: config.primaryColor || '#eab308' }} />
       )}
 
       <div className={`${isDashboardActive ? 'h-full overflow-hidden' : 'flex-1'} flex flex-col`}>
-        {!activeSession && isPartyCreated && !isLandingRoute && currentPath !== '/cms' && <Header />}
+        {!activeSession && isPartyCreated && !isLandingRoute && !isRolesRoute && currentPath !== '/cms' && <Header />}
 
-        <div className={`flex-1 ${isDashboardActive ? 'p-0 overflow-hidden' : isLandingRoute ? 'p-0' : 'pb-4 md:pb-6'}`}>
+        <div className={`flex-1 ${isDashboardActive ? 'p-0 overflow-hidden' : (isLandingRoute || isRolesRoute) ? 'p-0' : 'pb-4 md:pb-6'}`}>
           {renderView()}
         </div>
       </div>
 
-      {!isDashboardActive && isPartyCreated && !isLandingRoute && currentPath !== '/cms' && <Footer />}
+      {!isDashboardActive && isPartyCreated && !isLandingRoute && !isRolesRoute && currentPath !== '/cms' && <Footer />}
 
       {selectedRole && (
         <OtpLoginModal
