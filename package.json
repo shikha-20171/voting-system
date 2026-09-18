@@ -10,7 +10,7 @@
     "dev": "node tools/start_dev.mjs",
     "start": "node tools/start_dev.mjs",
     "dev:all": "node tools/start_dev.mjs",
-    "build": "npm --prefix frontend run build",
+    "build": "npm --prefix frontend run build && rm -rf dist && cp -r frontend/dist ./dist",
     "install:all": "npm install --workspaces",
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "npm --prefix backend run dev",

@@ -1,4 +1,5 @@
 {
+  "outputDirectory": "dist",
   "services": {
     "frontend": {
       "root": "frontend",
