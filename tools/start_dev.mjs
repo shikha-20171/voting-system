@@ -10,7 +10,7 @@ console.log('\x1b[36m%s\x1b[0m', `
 ==================================================================
   🗳️  VIAP - Voter Intelligent Application Platform
 ==================================================================
-  Starting Backend (Fastify on :4000) & Frontend (Vite on :3000)...
+  Starting Backend (Fastify/Node.js on :4000) & Frontend (Next.js on :3000)...
 ==================================================================
 `);
 

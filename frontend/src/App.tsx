@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -43,12 +45,14 @@ const ROUTE_BY_ROLE: Record<RoleType, string> = {
   VIEWER: '/constituency',
 };
 
-export default function App() {
+export default function App({ initialPath }: { initialPath?: string } = {}) {
   const [isPartyCreated, setIsPartyCreated] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
     return localStorage.getItem('kdp_party_created') === 'true';
   });
 
   const [activeSession, setActiveSession] = useState<UserSession | null>(() => {
+    if (typeof window === 'undefined') return null;
     const token = getAuthToken();
     const saved = localStorage.getItem('kdp_active_session');
     if (!saved || !token) {
@@ -63,7 +67,15 @@ export default function App() {
   });
 
   const [selectedRole, setSelectedRole] = useState<CommandRole | null>(null);
-  const [currentPath, setCurrentPath] = useState(() => window.location.hash.replace('#', '') || '/');
+  const [currentPath, setCurrentPath] = useState(() => {
+    if (initialPath) return initialPath;
+    if (typeof window === 'undefined') return '/';
+    const hash = window.location.hash.replace('#', '');
+    if (hash && hash !== '/') return hash;
+    const pathname = window.location.pathname;
+    if (pathname && pathname !== '/') return pathname;
+    return '/';
+  });
 
   // Dev helper: allows resetting party setup from developer console if ever needed
   useEffect(() => {
@@ -77,13 +89,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleHashChange = () => {
-      const newPath = window.location.hash.replace('#', '') || '/';
-      setCurrentPath(newPath);
+    const handleLocationChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && hash !== '/') {
+        setCurrentPath(hash);
+      } else {
+        const pathname = window.location.pathname;
+        setCurrentPath(pathname || '/');
+      }
     };
 
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
   }, []);
 
   // When party is already created, only lock out first-time wizard setup route

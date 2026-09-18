@@ -55,3 +55,7 @@ coverage/
 # Temporary
 tmp/
 temp/
+AGENTS.md
+CLAUDE.md
+frontend/AGENTS.md
+frontend/CLAUDE.md

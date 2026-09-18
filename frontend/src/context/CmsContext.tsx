@@ -1,3 +1,5 @@
+'use client';
+
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { VoterPreference } from '../types';
 import {
@@ -61,6 +63,7 @@ const CmsContext = createContext<CmsContextValue>({
 
 export function CmsProvider({ children }: { children: React.ReactNode }) {
   const [config, setConfig] = useState<CmsConfig>(() => {
+    if (typeof window === 'undefined') return DEFAULT_CONFIG;
     const saved = localStorage.getItem('kdp_cms_config');
     if (saved) {
       try {

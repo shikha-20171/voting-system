@@ -27,6 +27,7 @@ import {
   Activity,
   Building2,
   Zap,
+  Database,
 } from 'lucide-react';
 import { useCms } from '../context/CmsContext';
 import { fetchCmsApplications } from '../lib/api/applications.api';
