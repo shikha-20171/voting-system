@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Smartphone, Sparkles, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Smartphone, Sparkles, UserCheck, X, Zap } from 'lucide-react';
 import { CommandRole, UserSession } from '../types';
-import { requestOtp, verifyOtp } from '../lib/api';
+import { getMockSessionForRole, requestOtp, verifyOtp } from '../lib/api';
 
 interface OtpLoginModalProps {
   role: CommandRole;
@@ -43,6 +43,18 @@ export default function OtpLoginModal({ role, onClose, onSuccess }: OtpLoginModa
     }, 1000);
     return () => clearInterval(timer);
   }, [cooldown]);
+
+  const handleDirectDemoLogin = () => {
+    setIsSubmitting(true);
+    try {
+      const demoSession = getMockSessionForRole(role.id, mobileNumber || roleDemo.mobile);
+      onSuccess(demoSession, `demo-token-${Date.now()}`);
+    } catch {
+      setError('Unable to initialize demo session.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleRequestOtp = async (event?: React.FormEvent, customMobile?: string) => {
     if (event) event.preventDefault();
@@ -214,14 +226,26 @@ export default function OtpLoginModal({ role, onClose, onSuccess }: OtpLoginModa
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting || mobileNumber.length < 10}
-                className="w-full py-3 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-black rounded-xl text-sm shadow-md hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed active:scale-[0.99]"
-              >
-                {isSubmitting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : null}
-                Request Verification Code
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || mobileNumber.length < 10}
+                  className="w-full py-3 bg-amber-400 hover:bg-amber-500 disabled:bg-slate-200 disabled:text-slate-400 text-slate-950 font-black rounded-xl text-sm shadow-md hover:shadow transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed active:scale-[0.99]"
+                >
+                  {isSubmitting ? <LoaderCircle className="w-4 h-4 animate-spin" /> : null}
+                  Request Verification Code
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDirectDemoLogin}
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-slate-950 font-black rounded-xl text-xs shadow-sm hover:shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.99]"
+                >
+                  <Zap className="w-4 h-4 fill-current text-slate-950" />
+                  ⚡ Instant 1-Click Demo Login (Direct Access)
+                </button>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
