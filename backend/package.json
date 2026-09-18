@@ -1,0 +1,47 @@
+{
+  "name": "kondapi-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc",
+    "test": "tsx src/tests/integration.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/jwt": "^10.2.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/sensible": "^6.0.5",
+    "@google/genai": "^2.4.0",
+    "@prisma/client": "^6.14.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "fastify": "^5.12.0",
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.14.0",
+    "prisma": "^6.14.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

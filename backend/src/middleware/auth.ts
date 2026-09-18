@@ -1,0 +1,76 @@
+import { FastifyReply, FastifyRequest } from 'fastify';
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env.js';
+import { AuthenticatedUserPayload } from '../common/types.js';
+import { errorResponse } from '../common/response.js';
+import { prisma } from '../lib/prisma.js';
+
+export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
+  let token: string | undefined;
+
+  // Check Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (req.cookies && req.cookies.access_token) {
+    token = req.cookies.access_token;
+  }
+
+  if (!token) {
+    return reply.status(401).send(errorResponse('Authentication required', 'UNAUTHORIZED'));
+  }
+
+  try {
+    const decoded = jwt.verify(token, env.JWT_SECRET) as AuthenticatedUserPayload;
+    
+    // Ensure user is still active in database
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: {
+        id: true,
+        userCode: true,
+        mobileNumber: true,
+        role: true,
+        accountStatus: true,
+        organisationId: true,
+        unitId: true,
+      },
+    });
+
+    if (!user || user.accountStatus !== 'ACTIVE') {
+      return reply.status(401).send(errorResponse('Account is inactive or suspended', 'ACCOUNT_INACTIVE'));
+    }
+
+    req.user = {
+      userId: user.id,
+      userCode: user.userCode,
+      mobileNumber: user.mobileNumber,
+      role: user.role,
+      organisationId: user.organisationId,
+      unitId: user.unitId,
+    };
+  } catch (err) {
+    return reply.status(401).send(errorResponse('Invalid or expired authentication token', 'INVALID_TOKEN'));
+  }
+}
+
+export function optionalAuthenticate(req: FastifyRequest, _reply: FastifyReply, done: () => void) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return done();
+  }
+
+  try {
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, env.JWT_SECRET) as AuthenticatedUserPayload;
+    req.user = decoded;
+  } catch {
+    // Ignore invalid token in optional mode
+  }
+  done();
+}
+
+export function generateToken(payload: AuthenticatedUserPayload): string {
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '7d' });
+}
+
