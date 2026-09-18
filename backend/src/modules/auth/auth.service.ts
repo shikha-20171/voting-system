@@ -25,7 +25,24 @@ export class AuthService {
       },
     });
 
-    const roleRecord = await prisma.role.findFirst({ where: { code: dto.role } });
+    let roleRecord = await prisma.role.findFirst({ where: { code: dto.role } });
+    if (!roleRecord) {
+      const org = await prisma.organisation.findFirst();
+      if (org) {
+        try {
+          roleRecord = await prisma.role.create({
+            data: {
+              organisationId: org.id,
+              code: dto.role,
+              name: dto.role.replace(/_/g, ' '),
+              hierarchyLevel: 'CONSTITUENCY',
+            },
+          });
+        } catch {
+          roleRecord = await prisma.role.findFirst({ where: { code: dto.role } });
+        }
+      }
+    }
 
     if (user) {
       if (user.role !== dto.role) {

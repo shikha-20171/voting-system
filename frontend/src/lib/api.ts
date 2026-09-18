@@ -3,11 +3,21 @@
 import { GroundReport, SurveyStatus, TrainingVideo, Voter, VoterPreference, VoterStatus, VoterTask } from '../types';
 import { getAuthToken } from './authStorage';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+export const getApiBase = (): string => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  // If in browser, use relative URL (empty string) so Vite proxy handles requests from any device/laptop/phone
+  if (typeof window !== 'undefined') {
+    return '';
+  }
+  return 'http://localhost:4000';
+};
 
 export async function apiFetch<T = any>(endpoint: string, init: RequestInit = {}): Promise<T> {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const primaryUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE}${normalizedEndpoint}`;
+  const apiBase = getApiBase();
+  const primaryUrl = endpoint.startsWith('http') ? endpoint : `${apiBase}${normalizedEndpoint}`;
   const fallbackUrl = endpoint.startsWith('http') ? endpoint : normalizedEndpoint;
 
   const headers = new Headers(init.headers);
@@ -29,7 +39,7 @@ export async function apiFetch<T = any>(endpoint: string, init: RequestInit = {}
       credentials: 'include',
     });
   } catch (_err) {
-    // If primary URL failed (e.g. cross-port block), try relative fallback via Vite proxy
+    // If primary URL failed (e.g. cross-port block on mobile/network), try relative fallback via Vite proxy
     try {
       res = await fetch(fallbackUrl, {
         ...init,
@@ -137,24 +147,17 @@ export async function fetchVoters(params: VoterQueryParams = {}): Promise<Pagina
   const queryString = searchParams.toString();
   const endpoint = `/api/voters${queryString ? `?${queryString}` : ''}`;
   
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers: {
-      ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
-    },
-  });
-
-  if (!res.ok) throw new Error('Failed to fetch voters');
-  const json = await res.json();
-  const rawList = Array.isArray(json.data) ? json.data : (Array.isArray(json.items) ? json.items : []);
+  const json = await apiFetch<any>(endpoint);
+  const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []));
   
   return {
     items: rawList.map(normalizeVoter),
-    total: json.meta?.total || rawList.length,
-    page: json.meta?.page || 1,
-    limit: json.meta?.limit || 50,
-    totalPages: json.meta?.totalPages || 1,
-    hasNextPage: Boolean(json.meta?.hasNextPage),
-    hasPrevPage: Boolean(json.meta?.hasPrevPage),
+    total: json?.meta?.total || rawList.length,
+    page: json?.meta?.page || 1,
+    limit: json?.meta?.limit || 50,
+    totalPages: json?.meta?.totalPages || 1,
+    hasNextPage: Boolean(json?.meta?.hasNextPage),
+    hasPrevPage: Boolean(json?.meta?.hasPrevPage),
   };
 }
 

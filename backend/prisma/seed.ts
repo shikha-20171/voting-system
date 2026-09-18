@@ -567,11 +567,18 @@ async function main() {
   const rolesList: { code: RoleType; name: string; level: OrgHierarchyLevel }[] = [
     { code: RoleType.SUPER_ADMIN, name: 'Super Administrator', level: OrgHierarchyLevel.STATE },
     { code: RoleType.STATE_ADMIN, name: 'State Central Command', level: OrgHierarchyLevel.STATE },
+    { code: RoleType.HIGH_COMMAND, name: 'Party High Command', level: OrgHierarchyLevel.STATE },
+    { code: RoleType.ZONE_INCHARGE, name: 'Zone Incharge', level: OrgHierarchyLevel.ZONE },
+    { code: RoleType.PARLIAMENT_INCHARGE, name: 'Parliament Incharge', level: OrgHierarchyLevel.PARLIAMENT },
     { code: RoleType.CONSTITUENCY_INCHARGE, name: 'Constituency Incharge (MLA)', level: OrgHierarchyLevel.CONSTITUENCY },
     { code: RoleType.MANDAL_INCHARGE, name: 'Mandal Incharge', level: OrgHierarchyLevel.MANDAL },
     { code: RoleType.VILLAGE_INCHARGE, name: 'Village Incharge', level: OrgHierarchyLevel.VILLAGE },
     { code: RoleType.BOOTH_PRESIDENT, name: 'Booth President', level: OrgHierarchyLevel.BOOTH },
+    { code: RoleType.BOOTH_INCHARGE, name: 'Booth Incharge', level: OrgHierarchyLevel.BOOTH },
     { code: RoleType.VOTER_100_INCHARGE, name: '100-Voter Incharge (Cluster)', level: OrgHierarchyLevel.VOTER_GROUP },
+    { code: RoleType.POLLING_AGENT, name: 'Polling Agent', level: OrgHierarchyLevel.BOOTH },
+    { code: RoleType.VOLUNTEER, name: 'Cadre Volunteer', level: OrgHierarchyLevel.VOTER_GROUP },
+    { code: RoleType.VIEWER, name: 'Observer / Viewer', level: OrgHierarchyLevel.CONSTITUENCY },
   ];
 
   const roleMap: Record<string, string> = {};
@@ -643,14 +650,92 @@ async function main() {
     },
   });
 
+  // Mandal Incharge User
+  const mandalIncharge = await prisma.user.create({
+    data: {
+      organisationId: org.id,
+      userCode: 'MNDL-KDP-01',
+      name: 'Kondapi Mandal Incharge',
+      mobileNumber: '9848077777',
+      role: RoleType.MANDAL_INCHARGE,
+      roleId: roleMap[RoleType.MANDAL_INCHARGE],
+      accountStatus: AccountStatus.ACTIVE,
+      isVerified: true,
+      unitId: createdBooths[0]?.unitId || constUnit.id,
+      passwordHash: '$2b$10$demoHashedPasswordMockForSecureSeeding2026',
+    },
+  });
+
+  await prisma.userHierarchyAssignment.create({
+    data: {
+      userId: mandalIncharge.id,
+      roleType: RoleType.MANDAL_INCHARGE,
+      constituencyId: constituency.id,
+      mandalId: createdBooths[0]?.mandalId,
+    },
+  });
+
+  // Village Incharge User
+  const villageIncharge = await prisma.user.create({
+    data: {
+      organisationId: org.id,
+      userCode: 'VILL-KDP-01',
+      name: 'Village President (Kondapi Main)',
+      mobileNumber: '9848010001',
+      role: RoleType.VILLAGE_INCHARGE,
+      roleId: roleMap[RoleType.VILLAGE_INCHARGE],
+      accountStatus: AccountStatus.ACTIVE,
+      isVerified: true,
+      unitId: createdBooths[0]?.unitId || constUnit.id,
+      passwordHash: '$2b$10$demoHashedPasswordMockForSecureSeeding2026',
+    },
+  });
+
+  await prisma.userHierarchyAssignment.create({
+    data: {
+      userId: villageIncharge.id,
+      roleType: RoleType.VILLAGE_INCHARGE,
+      constituencyId: constituency.id,
+      mandalId: createdBooths[0]?.mandalId,
+      villageId: createdBooths[0]?.villageId,
+    },
+  });
+
+  // Booth President User
+  const boothPresident = await prisma.user.create({
+    data: {
+      organisationId: org.id,
+      userCode: 'BTH-101-01',
+      name: 'Booth 101 President',
+      mobileNumber: '9848010002',
+      role: RoleType.BOOTH_PRESIDENT,
+      roleId: roleMap[RoleType.BOOTH_PRESIDENT],
+      accountStatus: AccountStatus.ACTIVE,
+      isVerified: true,
+      unitId: createdBooths[0]?.unitId || constUnit.id,
+      passwordHash: '$2b$10$demoHashedPasswordMockForSecureSeeding2026',
+    },
+  });
+
+  await prisma.userHierarchyAssignment.create({
+    data: {
+      userId: boothPresident.id,
+      roleType: RoleType.BOOTH_PRESIDENT,
+      constituencyId: constituency.id,
+      mandalId: createdBooths[0]?.mandalId,
+      villageId: createdBooths[0]?.villageId,
+      boothId: createdBooths[0]?.boothId,
+    },
+  });
+
   // 100-Voter Incharge for Booth 145 Team A
-  const sampleBooth = createdBooths.find((b) => b.boothCode === 'B145')!;
+  const sampleBooth = createdBooths.find((b) => b.boothCode === 'B145') || createdBooths[0];
   const incharge100 = await prisma.user.create({
     data: {
       organisationId: org.id,
       userCode: 'INC-100-B145A',
-      name: 'Marella Venkateswarlu',
-      mobileNumber: '9848077777',
+      name: 'Marella Venkateswarlu (100-Voter Incharge)',
+      mobileNumber: '9848010003',
       role: RoleType.VOTER_100_INCHARGE,
       roleId: roleMap[RoleType.VOTER_100_INCHARGE],
       accountStatus: AccountStatus.ACTIVE,
