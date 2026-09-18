@@ -11,17 +11,56 @@ export interface ApplicationHierarchy {
   constituencies: any[];
 }
 
+export interface ApplicationConfig {
+  id: string;
+  configKey: string;
+  appName: string;
+  stateName: string;
+  parliamentName?: string;
+  appScope: string;
+  defaultLanguage: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  logoUrl?: string;
+  hierarchyLabels: Record<string, string>;
+  activeHierarchyLevels: string[];
+  featureToggles: Record<string, boolean>;
+  aiEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConstituencyItem {
+  id: string;
+  name: string;
+  code: string;
+  constituencyNumber?: number | null;
+  stateName: string;
+  zoneName: string;
+  parliamentName: string;
+  mandalsCount: number;
+  villagesCount: number;
+  boothsCount: number;
+  totalVoters: number;
+  lastImported?: string | null;
+  importStatus: string;
+  importedRecords: number;
+}
+
 export interface ValidationReport {
   totalRows: number;
   validRows: number;
   invalidRows: number;
   duplicateCount: number;
+  warningsCount: number;
   errors: {
     rowNumber: number;
     field: string;
     value?: any;
     message: string;
     suggestion: string;
+    severity?: 'ERROR' | 'WARNING';
   }[];
   preview: {
     rowNumber: number;
@@ -40,14 +79,50 @@ export interface ValidationReport {
 }
 
 export interface ImportSummary {
-  jobId: string;
+  importId?: string;
+  jobId?: string;
   status: string;
+  applicationName?: string;
+  targetConstituency?: string;
+  targetConstituencyId?: string;
   totalRows: number;
+  totalRecords?: number;
   successCount: number;
+  importedCount?: number;
   updatedCount: number;
   skippedCount: number;
   errorCount: number;
+  failedCount?: number;
+  boothsCount?: number;
+  voterGroupsCount?: number;
   errors: any[];
+}
+
+export interface DataImportRecord {
+  id: string;
+  applicationId?: string;
+  applicationName: string;
+  stateName: string;
+  zoneName: string;
+  parliamentName: string;
+  constituencyName: string;
+  constituencyId?: string;
+  fileName: string;
+  fileSize?: number;
+  mode: string;
+  status: string;
+  totalRecords: number;
+  validRecords: number;
+  importedRecords: number;
+  updatedRecords: number;
+  skippedRecords: number;
+  failedRecords: number;
+  boothsCount: number;
+  voterGroupsCount: number;
+  uploadedBy: string;
+  uploadedByMobile?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface InchargeRecord {
@@ -89,8 +164,13 @@ export interface ApplicationSummaryKpis {
 }
 
 export async function fetchCmsApplications(): Promise<any[]> {
-  const res = await apiFetch<any>('/api/cms/applications');
+  const res = await apiFetch<any>('/api/applications');
   return res.data || res || [];
+}
+
+export async function fetchApplicationConfig(appId: string): Promise<ApplicationConfig> {
+  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/configuration`);
+  return res.data || res;
 }
 
 export async function fetchApplicationHierarchy(appId: string): Promise<ApplicationHierarchy> {
@@ -110,14 +190,49 @@ export async function fetchHierarchyNodes(
   return res.data || res || [];
 }
 
+export async function fetchApplicationConstituencies(
+  appId: string,
+  scopeFilters?: { stateId?: string; zoneId?: string; parliamentId?: string },
+): Promise<ConstituencyItem[]> {
+  const params = new URLSearchParams();
+  if (scopeFilters?.stateId) params.append('stateId', scopeFilters.stateId);
+  if (scopeFilters?.zoneId) params.append('zoneId', scopeFilters.zoneId);
+  if (scopeFilters?.parliamentId) params.append('parliamentId', scopeFilters.parliamentId);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/constituencies${qs}`);
+  return res.data || res || [];
+}
+
+export async function fetchColumnMappingSuggestions(
+  appId: string,
+  headers: string[],
+): Promise<{ suggestions: Record<string, string>; unmapped: string[]; systemFields: Array<{ key: string; label: string; required: boolean; description: string }> }> {
+  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/mapping`, {
+    method: 'POST',
+    body: JSON.stringify({ headers }),
+  });
+  return res.data || res;
+}
+
 export async function validateApplicationData(
   appId: string,
   level: string,
   rows: any[],
+  options?: {
+    targetConstituencyId?: string;
+    columnMapping?: Record<string, string>;
+    fileName?: string;
+  },
 ): Promise<ValidationReport> {
   const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/validate`, {
     method: 'POST',
-    body: JSON.stringify({ level, rows }),
+    body: JSON.stringify({
+      level,
+      rows,
+      targetConstituencyId: options?.targetConstituencyId,
+      columnMapping: options?.columnMapping,
+      fileName: options?.fileName,
+    }),
   });
   return res.data || res;
 }
@@ -127,9 +242,12 @@ export async function importApplicationData(
   payload: {
     level: string;
     rows: any[];
+    targetConstituencyId?: string;
+    columnMapping?: Record<string, string>;
     importMode?: 'APPEND' | 'REPLACE';
     voterGroupSize?: number;
     fileName?: string;
+    fileSize?: number;
   },
 ): Promise<ImportSummary> {
   const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/import`, {
@@ -139,14 +257,47 @@ export async function importApplicationData(
   return res.data || res;
 }
 
-export async function fetchImportHistory(appId: string): Promise<any[]> {
-  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/history`);
+export async function fetchDataImports(
+  appId: string,
+  params?: {
+    status?: string;
+    constituencyId?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  },
+): Promise<{ items: DataImportRecord[]; pagination: { total: number; page: number; limit: number; totalPages: number } }> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.append('status', params.status);
+  if (params?.constituencyId) qs.append('constituencyId', params.constituencyId);
+  if (params?.startDate) qs.append('startDate', params.startDate);
+  if (params?.endDate) qs.append('endDate', params.endDate);
+  if (params?.page) qs.append('page', String(params.page));
+  if (params?.limit) qs.append('limit', String(params.limit));
+
+  const queryStr = qs.toString() ? `?${qs.toString()}` : '';
+  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/imports${queryStr}`);
+  return res.data || res || { items: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } };
+}
+
+export async function fetchDataImportById(appId: string, importId: string): Promise<any> {
+  const res = await apiFetch<any>(`/api/applications/${encodeURIComponent(appId)}/data/imports/${encodeURIComponent(importId)}`);
+  return res.data || res;
+}
+
+export async function fetchDataImportErrors(importId: string): Promise<any[]> {
+  const res = await apiFetch<any>(`/api/applications/data/errors/${encodeURIComponent(importId)}`);
   return res.data || res || [];
 }
 
+export async function fetchImportHistory(appId: string): Promise<any[]> {
+  const data = await fetchDataImports(appId, { limit: 20 });
+  return data.items || [];
+}
+
 export async function fetchImportErrors(jobId: string): Promise<any> {
-  const res = await apiFetch<any>(`/api/applications/data/errors/${encodeURIComponent(jobId)}`);
-  return res.data || res;
+  return fetchDataImportErrors(jobId);
 }
 
 export async function fetchApplicationIncharges(

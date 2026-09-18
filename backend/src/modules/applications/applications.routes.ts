@@ -1,21 +1,35 @@
 import { FastifyInstance } from 'fastify';
-import { RoleType } from '@prisma/client';
 import { validateBody } from '../../common/validation.js';
-import { authenticate, optionalAuthenticate } from '../../middleware/auth.js';
-import { populateHierarchyScope, requireRoles } from '../../middleware/rbac.js';
+import { optionalAuthenticate } from '../../middleware/auth.js';
 import { ApplicationsController } from './applications.controller.js';
 import {
   assignInchargeSchema,
   importDataSchema,
+  mappingSchema,
   validateDataSchema,
 } from './applications.schema.js';
 
 export async function applicationsRoutes(fastify: FastifyInstance) {
-  // 1. Hierarchy & Structure Endpoints
+  // 1. Applications List & Configuration
+  fastify.get('/', { preHandler: [optionalAuthenticate] }, ApplicationsController.getApplications);
+  fastify.get('/:applicationId/configuration', { preHandler: [optionalAuthenticate] }, ApplicationsController.getConfiguration);
+
+  // 2. Hierarchy & Structure Endpoints
   fastify.get('/:applicationId/hierarchy', { preHandler: [optionalAuthenticate] }, ApplicationsController.getHierarchy);
   fastify.get('/:applicationId/hierarchy/:level', { preHandler: [optionalAuthenticate] }, ApplicationsController.getHierarchyNodes);
+  fastify.get('/:applicationId/constituencies', { preHandler: [optionalAuthenticate] }, ApplicationsController.getConstituencies);
+  fastify.get('/:applicationId/constituencies/:id', { preHandler: [optionalAuthenticate] }, ApplicationsController.getConstituencyDetail);
 
-  // 2. Data Validation & Import Endpoints (Phase 2)
+  // 3. Data Ingestion: Mapping, Validation & Import
+  fastify.post(
+    '/:applicationId/data/mapping',
+    {
+      preHandler: [optionalAuthenticate],
+      preValidation: [validateBody(mappingSchema)],
+    },
+    ApplicationsController.suggestColumnMapping,
+  );
+
   fastify.post(
     '/:applicationId/data/validate',
     {
@@ -28,27 +42,57 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/:applicationId/data/import',
     {
-      preHandler: [
-        optionalAuthenticate,
-      ],
+      preHandler: [optionalAuthenticate],
       preValidation: [validateBody(importDataSchema)],
     },
     ApplicationsController.importData,
   );
 
+  // 4. Data Import History & Error Reports
+  fastify.get(
+    '/:applicationId/data/imports',
+    { preHandler: [optionalAuthenticate] },
+    ApplicationsController.getDataImports,
+  );
+
+  fastify.get(
+    '/:applicationId/data/imports/:importId',
+    { preHandler: [optionalAuthenticate] },
+    ApplicationsController.getDataImportById,
+  );
+
+  fastify.get(
+    '/:applicationId/data/imports/:importId/errors',
+    { preHandler: [optionalAuthenticate] },
+    ApplicationsController.getDataImportErrors,
+  );
+
+  fastify.get(
+    '/:applicationId/data/imports/:importId/error-report',
+    { preHandler: [optionalAuthenticate] },
+    ApplicationsController.downloadErrorReport,
+  );
+
+  // Backward-compatible history & error routes
   fastify.get(
     '/:applicationId/data/history',
     { preHandler: [optionalAuthenticate] },
-    ApplicationsController.getImportHistory,
+    ApplicationsController.getDataImports,
   );
 
   fastify.get(
     '/data/errors/:jobId',
     { preHandler: [optionalAuthenticate] },
-    ApplicationsController.getImportJobErrors,
+    ApplicationsController.getDataImportErrors,
   );
 
-  // 3. Assign Incharges Endpoints (Phase 3)
+  fastify.get(
+    '/data/error-report/:jobId',
+    { preHandler: [optionalAuthenticate] },
+    ApplicationsController.downloadErrorReport,
+  );
+
+  // 5. Incharges Endpoints
   fastify.get(
     '/:applicationId/incharges',
     { preHandler: [optionalAuthenticate] },
@@ -58,9 +102,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/:applicationId/incharges',
     {
-      preHandler: [
-        optionalAuthenticate,
-      ],
+      preHandler: [optionalAuthenticate],
       preValidation: [validateBody(assignInchargeSchema)],
     },
     ApplicationsController.assignIncharge,
@@ -68,11 +110,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
 
   fastify.delete(
     '/:applicationId/incharges/:id',
-    {
-      preHandler: [
-        optionalAuthenticate,
-      ],
-    },
+    { preHandler: [optionalAuthenticate] },
     ApplicationsController.deleteIncharge,
   );
 
@@ -87,7 +125,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     }
   };
 
-  // 4. Voters, Booths & Groups (Field APIs & Scoped access)
+  // 6. Voters, Booths & Groups (Field APIs & Scoped access)
   fastify.get(
     '/:applicationId/voters',
     { preHandler: [optionalAuthenticate, resolveScope] },
@@ -106,7 +144,7 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     ApplicationsController.getVoterGroups,
   );
 
-  // 5. Reports & Summary KPIs
+  // 7. Reports & Summary KPIs
   fastify.get(
     '/:applicationId/reports/summary',
     { preHandler: [optionalAuthenticate, resolveScope] },

@@ -16,14 +16,24 @@ export const hierarchyLevelEnum = z.enum([
 export const validateDataSchema = z.object({
   level: hierarchyLevelEnum.default('VOTER'),
   rows: z.array(z.record(z.string(), z.any())).min(1, 'At least one data row is required'),
+  targetConstituencyId: z.string().optional(),
+  columnMapping: z.record(z.string(), z.string()).optional(),
+  fileName: z.string().optional(),
 });
 
 export const importDataSchema = z.object({
   level: hierarchyLevelEnum.default('VOTER'),
   rows: z.array(z.record(z.string(), z.any())).min(1, 'At least one data row is required'),
+  targetConstituencyId: z.string().optional(),
+  columnMapping: z.record(z.string(), z.string()).optional(),
   importMode: z.enum(['APPEND', 'REPLACE']).default('APPEND'),
   voterGroupSize: z.number().int().min(10).max(500).default(100),
   fileName: z.string().optional().default('import_data.xlsx'),
+  fileSize: z.number().optional().default(0),
+});
+
+export const mappingSchema = z.object({
+  headers: z.array(z.string()).min(1, 'At least one header column is required'),
 });
 
 export const assignInchargeSchema = z.object({

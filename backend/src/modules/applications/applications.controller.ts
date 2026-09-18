@@ -3,6 +3,17 @@ import { successResponse } from '../../common/response.js';
 import { ApplicationsService } from './applications.service.js';
 
 export class ApplicationsController {
+  static async getApplications(_req: FastifyRequest, reply: FastifyReply) {
+    const data = await ApplicationsService.getApplications();
+    return reply.send(successResponse(data));
+  }
+
+  static async getConfiguration(req: FastifyRequest, reply: FastifyReply) {
+    const { applicationId } = req.params as { applicationId: string };
+    const data = await ApplicationsService.getConfiguration(applicationId);
+    return reply.send(successResponse(data));
+  }
+
   static async getHierarchy(req: FastifyRequest, reply: FastifyReply) {
     const { applicationId } = req.params as { applicationId: string };
     const data = await ApplicationsService.getHierarchy(applicationId);
@@ -16,10 +27,39 @@ export class ApplicationsController {
     return reply.send(successResponse(data));
   }
 
+  static async getConstituencies(req: FastifyRequest, reply: FastifyReply) {
+    const { applicationId } = req.params as { applicationId: string };
+    const query = req.query as { stateId?: string; zoneId?: string; parliamentId?: string };
+    const data = await ApplicationsService.getConstituencies(applicationId, query);
+    return reply.send(successResponse(data));
+  }
+
+  static async getConstituencyDetail(req: FastifyRequest, reply: FastifyReply) {
+    const { applicationId, id } = req.params as { applicationId: string; id: string };
+    const data = await ApplicationsService.getConstituencyDetail(applicationId, id);
+    return reply.send(successResponse(data));
+  }
+
+  static async suggestColumnMapping(req: FastifyRequest, reply: FastifyReply) {
+    const body = req.body as { headers: string[] };
+    const data = ApplicationsService.suggestColumnMapping(body.headers || []);
+    return reply.send(successResponse(data));
+  }
+
   static async validateData(req: FastifyRequest, reply: FastifyReply) {
     const { applicationId } = req.params as { applicationId: string };
-    const body = req.body as { level?: string; rows: any[] };
-    const result = await ApplicationsService.validateData(applicationId, body.level || 'VOTER', body.rows);
+    const body = req.body as {
+      level?: string;
+      rows: any[];
+      targetConstituencyId?: string;
+      columnMapping?: Record<string, string>;
+      fileName?: string;
+    };
+    const result = await ApplicationsService.validateData(applicationId, body.level || 'VOTER', body.rows, {
+      targetConstituencyId: body.targetConstituencyId,
+      columnMapping: body.columnMapping,
+      fileName: body.fileName,
+    });
     return reply.send(successResponse(result, 'Data validation report generated successfully'));
   }
 
@@ -28,9 +68,12 @@ export class ApplicationsController {
     const body = req.body as {
       level?: string;
       rows: any[];
+      targetConstituencyId?: string;
+      columnMapping?: Record<string, string>;
       importMode?: 'APPEND' | 'REPLACE';
       voterGroupSize?: number;
       fileName?: string;
+      fileSize?: number;
     };
     const actorId = req.user?.userId;
     const result = await ApplicationsService.importData(
@@ -38,13 +81,65 @@ export class ApplicationsController {
       body.level || 'VOTER',
       body.rows,
       {
+        targetConstituencyId: body.targetConstituencyId,
+        columnMapping: body.columnMapping,
         importMode: body.importMode,
         voterGroupSize: body.voterGroupSize,
         fileName: body.fileName,
+        fileSize: body.fileSize,
       },
       actorId,
     );
     return reply.status(201).send(successResponse(result, 'Data successfully imported and committed to hierarchy'));
+  }
+
+  static async getDataImports(req: FastifyRequest, reply: FastifyReply) {
+    const { applicationId } = req.params as { applicationId: string };
+    const query = req.query as {
+      status?: string;
+      constituencyId?: string;
+      startDate?: string;
+      endDate?: string;
+      page?: string;
+      limit?: string;
+    };
+    const data = await ApplicationsService.getDataImports(applicationId, {
+      status: query?.status,
+      constituencyId: query?.constituencyId,
+      startDate: query?.startDate,
+      endDate: query?.endDate,
+      page: query?.page ? parseInt(query.page, 10) : 1,
+      limit: query?.limit ? parseInt(query.limit, 10) : 20,
+    });
+    return reply.send(successResponse(data));
+  }
+
+  static async getDataImportById(req: FastifyRequest, reply: FastifyReply) {
+    const { importId } = req.params as { importId: string };
+    const data = await ApplicationsService.getDataImportById(importId);
+    return reply.send(successResponse(data));
+  }
+
+  static async getDataImportErrors(req: FastifyRequest, reply: FastifyReply) {
+    const { importId, jobId } = req.params as { importId?: string; jobId?: string };
+    const id = importId || jobId;
+    if (!id) {
+      return reply.status(400).send({ success: false, error: { message: 'Import ID is required' } });
+    }
+    const data = await ApplicationsService.getDataImportErrors(id);
+    return reply.send(successResponse(data));
+  }
+
+  static async downloadErrorReport(req: FastifyRequest, reply: FastifyReply) {
+    const { importId, jobId } = req.params as { importId?: string; jobId?: string };
+    const id = importId || jobId;
+    if (!id) {
+      return reply.status(400).send({ success: false, error: { message: 'Import ID is required' } });
+    }
+    const csv = await ApplicationsService.downloadErrorReport(id);
+    reply.header('Content-Type', 'text/csv');
+    reply.header('Content-Disposition', `attachment; filename="import_errors_${id}.csv"`);
+    return reply.send(csv);
   }
 
   static async getImportHistory(req: FastifyRequest, reply: FastifyReply) {

@@ -315,6 +315,7 @@ model Constituency {
   aiInsights      AIInsight[]
   newsArticles    NewsArticle[]
   socialTrends    SocialTrend[]
+  dataImports     DataImport[]     @relation("ConstituencyDataImports")
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -501,6 +502,7 @@ model User {
   sessions            LoginSession[]
   otpVerifications    OTPVerification[]
   importJobs          ImportJob[]
+  dataImports         DataImport[]         @relation("DataImportUploader")
   createdPolls        Poll[]               @relation("PollCreator")
   pollVotes           PollVote[]           @relation("UserPollVotes")
   createdAt           DateTime             @default(now())
@@ -1263,6 +1265,66 @@ model ImportJob {
 
   @@index([createdById])
   @@index([status])
+}
+
+model DataImport {
+  id                    String              @id @default(uuid()) @db.Uuid
+  applicationId         String?             @db.Uuid
+  uploadedById          String?             @db.Uuid
+  uploadedBy            User?               @relation("DataImportUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  fileName              String
+  fileSize              Int?                @default(0)
+  targetHierarchyId     String?             @db.Uuid
+  targetConstituencyId  String?             @db.Uuid
+  targetConstituency    Constituency?       @relation("ConstituencyDataImports", fields: [targetConstituencyId], references: [id], onDelete: SetNull)
+  mode                  String              @default("APPEND") // APPEND, REPLACE
+  status                String              @default("PENDING") // PENDING, PROCESSING, SUCCESS, PARTIAL_SUCCESS, FAILED
+  totalRecords          Int                 @default(0)
+  validRecords          Int                 @default(0)
+  importedRecords       Int                 @default(0)
+  updatedRecords        Int                 @default(0)
+  skippedRecords        Int                 @default(0)
+  failedRecords         Int                 @default(0)
+  boothsCount           Int                 @default(0)
+  voterGroupsCount      Int                 @default(0)
+  metadata              Json?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  errors                DataImportError[]
+  mappings              DataImportMapping[]
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([applicationId])
+  @@index([targetConstituencyId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DataImportError {
+  id            String      @id @default(uuid()) @db.Uuid
+  importId      String      @db.Uuid
+  import        DataImport  @relation(fields: [importId], references: [id], onDelete: Cascade)
+  rowNumber     Int
+  field         String
+  value         String?
+  errorMessage  String
+  severity      String      @default("ERROR") // ERROR, WARNING
+  createdAt     DateTime    @default(now())
+
+  @@index([importId])
+  @@index([severity])
+}
+
+model DataImportMapping {
+  id            String      @id @default(uuid()) @db.Uuid
+  importId      String      @db.Uuid
+  import        DataImport  @relation(fields: [importId], references: [id], onDelete: Cascade)
+  excelColumn   String
+  systemField   String
+  createdAt     DateTime    @default(now())
+
+  @@index([importId])
 }
 
 model AggregateCache {

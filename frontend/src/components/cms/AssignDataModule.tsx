@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileSpreadsheet,
@@ -19,16 +21,28 @@ import {
   Trash2,
   Eye,
   Info,
+  ArrowLeft,
+  Check,
+  X,
+  AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   fetchCmsApplications,
+  fetchApplicationConfig,
+  fetchApplicationHierarchy,
+  fetchApplicationConstituencies,
+  fetchColumnMappingSuggestions,
   validateApplicationData,
   importApplicationData,
-  fetchImportHistory,
-  fetchImportErrors,
+  fetchDataImports,
+  fetchDataImportErrors,
+  ApplicationConfig,
+  ConstituencyItem,
   ValidationReport,
   ImportSummary,
+  DataImportRecord,
 } from '../../lib/api/applications.api';
 import { useCms } from '../../context/CmsContext';
 
@@ -43,72 +57,164 @@ export default function AssignDataModule({
   onNavigateToIncharges,
   onClose,
 }: AssignDataModuleProps) {
-  const { config } = useCms();
+  const { config: globalConfig } = useCms();
 
-  // App Selection
+  // Navigation & View Mode
+  // 'list': Assembly/Constituency table & hierarchy overview
+  // 'upload': Multi-step Excel ingestion modal for selected target constituency
+  // 'history': Full import history table with filters & error downloads
+  const [activeTab, setActiveTab] = useState<'list' | 'history'>('list');
+
+  // Application State
   const [applications, setApplications] = useState<any[]>([]);
   const [selectedAppId, setSelectedAppId] = useState<string>(initialAppId || 'default');
-  const [loadingApps, setLoadingApps] = useState(false);
+  const [appConfig, setAppConfig] = useState<ApplicationConfig | null>(null);
+  const [hierarchyLevels, setHierarchyLevels] = useState<string[]>([]);
+  const [hierarchyLabels, setHierarchyLabels] = useState<Record<string, string>>({});
+  const [loadingApp, setLoadingApp] = useState(false);
 
-  // Tabs: 'upload' | 'history'
-  const [activeTab, setActiveTab] = useState<'upload' | 'history'>('upload');
+  // Target Filter States for Cascading Selection
+  const [selectedStateId, setSelectedStateId] = useState<string>('ALL');
+  const [selectedZoneId, setSelectedZoneId] = useState<string>('ALL');
+  const [selectedParliamentId, setSelectedParliamentId] = useState<string>('ALL');
+  const [constituencies, setConstituencies] = useState<ConstituencyItem[]>([]);
+  const [loadingConstituencies, setLoadingConstituencies] = useState(false);
+  const [acSearch, setAcSearch] = useState('');
+  const [acStatusFilter, setAcStatusFilter] = useState<'ALL' | 'SUCCESS' | 'PENDING' | 'PARTIAL_SUCCESS' | 'FAILED'>('ALL');
 
-  // Hierarchy Data Type Selection
-  const [selectedLevel, setSelectedLevel] = useState<string>('VOTER');
-  const [importMode, setImportMode] = useState<'APPEND' | 'REPLACE'>('APPEND');
-  const [voterGroupSize, setVoterGroupSize] = useState<number>(100);
+  // Active Target for Upload Flow
+  const [targetConstituency, setTargetConstituency] = useState<ConstituencyItem | null>(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadStep, setUploadStep] = useState<'upload' | 'mapping' | 'preview' | 'importing' | 'summary'>('upload');
 
-  // File & Raw Data States
+  // Excel & Ingestion States
   const [file, setFile] = useState<File | null>(null);
   const [rawRows, setRawRows] = useState<any[]>([]);
+  const [fileHeaders, setFileHeaders] = useState<string[]>([]);
   const [isParsing, setIsParsing] = useState(false);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+  const [systemFieldsCatalog, setSystemFieldsCatalog] = useState<Array<{ key: string; label: string; required: boolean; description: string }>>([]);
 
   // Validation States
   const [validating, setValidating] = useState(false);
   const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'VALID' | 'ERROR' | 'WARNING'>('ALL');
-  const [previewSearch, setPreviewSearch] = useState('');
+  const [showValidationErrorsOnly, setShowValidationErrorsOnly] = useState(false);
 
   // Import Execution States
+  const [importMode, setImportMode] = useState<'APPEND' | 'REPLACE'>('APPEND');
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [clusterSize, setClusterSize] = useState<number>(100);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportSummary | null>(null);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
-  // History States
-  const [historyJobs, setHistoryJobs] = useState<any[]>([]);
+  // Import History States
+  const [historyItems, setHistoryItems] = useState<DataImportRecord[]>([]);
+  const [historyPagination, setHistoryPagination] = useState({ total: 0, page: 1, limit: 15, totalPages: 1 });
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<string>('ALL');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyConstituencyFilter, setHistoryConstituencyFilter] = useState<string>('ALL');
 
-  // Load CMS applications on mount
+  // View Error Details Modal
+  const [selectedHistoryForErrors, setSelectedHistoryForErrors] = useState<DataImportRecord | null>(null);
+  const [historyErrors, setHistoryErrors] = useState<any[]>([]);
+  const [loadingErrors, setLoadingErrors] = useState(false);
+
+  // 1. Initial Load: Applications
   useEffect(() => {
-    async function loadApps() {
-      setLoadingApps(true);
+    async function loadApplications() {
+      setLoadingApp(true);
       try {
         const apps = await fetchCmsApplications();
         setApplications(apps);
-        if (apps.length > 0 && selectedAppId === 'default') {
-          setSelectedAppId(apps[0].id || apps[0].configKey || 'default');
+        if (apps.length > 0) {
+          const match = apps.find((a) => a.id === selectedAppId || a.configKey === selectedAppId) || apps[0];
+          setSelectedAppId(match.id || match.configKey || 'default');
         }
       } catch (err) {
-        console.error('Failed to load applications:', err);
+        console.error('Failed to load CMS applications:', err);
       } finally {
-        setLoadingApps(false);
+        setLoadingApp(false);
       }
     }
-    loadApps();
+    loadApplications();
   }, []);
 
-  // Load history when tab changes
+  // 2. Load Selected Application Configuration & Hierarchy
+  useEffect(() => {
+    if (!selectedAppId) return;
+
+    async function loadConfigAndHierarchy() {
+      setLoadingApp(true);
+      try {
+        const [cfg, hier] = await Promise.all([
+          fetchApplicationConfig(selectedAppId).catch(() => null),
+          fetchApplicationHierarchy(selectedAppId).catch(() => null),
+        ]);
+
+        if (cfg) {
+          setAppConfig(cfg);
+          setHierarchyLabels(cfg.hierarchyLabels || {});
+          setHierarchyLevels(cfg.activeHierarchyLevels || ['STATE', 'ZONE', 'PARLIAMENT', 'CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH', 'VOTER_GROUP']);
+        } else if (hier) {
+          setHierarchyLabels(hier.hierarchyLabels || {});
+          setHierarchyLevels(hier.activeHierarchyLevels || []);
+        }
+
+        loadConstituencies();
+      } catch (err) {
+        console.error('Failed to load application config:', err);
+      } finally {
+        setLoadingApp(false);
+      }
+    }
+
+    loadConfigAndHierarchy();
+  }, [selectedAppId]);
+
+  // 3. Load Scoped Constituencies
+  const loadConstituencies = async () => {
+    if (!selectedAppId) return;
+    setLoadingConstituencies(true);
+    try {
+      const filters: any = {};
+      if (selectedStateId !== 'ALL') filters.stateId = selectedStateId;
+      if (selectedZoneId !== 'ALL') filters.zoneId = selectedZoneId;
+      if (selectedParliamentId !== 'ALL') filters.parliamentId = selectedParliamentId;
+
+      const list = await fetchApplicationConstituencies(selectedAppId, filters);
+      setConstituencies(list);
+    } catch (err) {
+      console.error('Failed to load constituencies:', err);
+    } finally {
+      setLoadingConstituencies(false);
+    }
+  };
+
+  useEffect(() => {
+    loadConstituencies();
+  }, [selectedStateId, selectedZoneId, selectedParliamentId]);
+
+  // 4. Load History on Tab Switch
   useEffect(() => {
     if (activeTab === 'history' && selectedAppId) {
-      loadHistory();
+      loadHistory(1);
     }
-  }, [activeTab, selectedAppId]);
+  }, [activeTab, selectedAppId, historyStatusFilter, historyConstituencyFilter]);
 
-  const loadHistory = async () => {
+  const loadHistory = async (page = 1) => {
     setLoadingHistory(true);
     try {
-      const data = await fetchImportHistory(selectedAppId);
-      setHistoryJobs(data);
+      const res = await fetchDataImports(selectedAppId, {
+        status: historyStatusFilter,
+        constituencyId: historyConstituencyFilter,
+        page,
+        limit: 15,
+      });
+      setHistoryItems(res.items || []);
+      setHistoryPagination(res.pagination || { total: 0, page: 1, limit: 15, totalPages: 1 });
     } catch (err) {
       console.error('Failed to load import history:', err);
     } finally {
@@ -116,54 +222,85 @@ export default function AssignDataModule({
     }
   };
 
-  const selectedApp = useMemo(() => {
-    return (
-      applications.find((a) => a.id === selectedAppId || a.configKey === selectedAppId) ||
-      applications[0] || { appName: config.organisationName || 'Kondapi Connect' }
-    );
-  }, [applications, selectedAppId, config]);
-
-  // Handle Excel / CSV File Pick
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = e.target.files?.[0];
-    if (!uploadedFile) return;
-
-    setFile(uploadedFile);
-    setIsParsing(true);
+  // Open Ingestion Drawer for a specific target constituency
+  const handleOpenUploadForTarget = (ac: ConstituencyItem) => {
+    setTargetConstituency(ac);
+    setFile(null);
+    setRawRows([]);
+    setFileHeaders([]);
+    setColumnMapping({});
     setValidationReport(null);
-    setImportResult(null);
+    setImportSummary(null);
     setImportError(null);
+    setUploadStep('upload');
+    setIsUploadModalOpen(true);
+  };
+
+  // Handle File Selection & Parsing
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const pickedFile = e.target.files?.[0];
+    if (!pickedFile) return;
+
+    // Check extension
+    const nameLower = pickedFile.name.toLowerCase();
+    if (!nameLower.endsWith('.xlsx') && !nameLower.endsWith('.xls')) {
+      setImportError('Invalid file format. Only Excel spreadsheets (.xlsx, .xls) are supported.');
+      return;
+    }
+
+    setFile(pickedFile);
+    setIsParsing(true);
+    setImportError(null);
+    setValidationReport(null);
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+          throw new Error('Spreadsheet has no sheets');
+        }
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonRows: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
 
+        if (jsonRows.length === 0) {
+          throw new Error('Spreadsheet sheet is empty or has no data rows');
+        }
+
+        const headers = Object.keys(jsonRows[0] || {});
+        setFileHeaders(headers);
         setRawRows(jsonRows);
         setIsParsing(false);
 
-        // Run validation immediately
-        runValidation(jsonRows);
+        // Fetch suggested auto-mappings from backend
+        const mapSuggestions = await fetchColumnMappingSuggestions(selectedAppId, headers);
+        setColumnMapping(mapSuggestions.suggestions || {});
+        setSystemFieldsCatalog(mapSuggestions.systemFields || []);
       } catch (err: any) {
         setIsParsing(false);
-        setImportError(`Failed to parse file: ${err.message}`);
+        setImportError(`Failed to parse Excel file: ${err.message}`);
       }
     };
-    reader.readAsBinaryString(uploadedFile);
+    reader.readAsBinaryString(pickedFile);
   };
 
-  // Run Pre-flight Validation
-  const runValidation = async (rowsToValidate: any[]) => {
-    if (!rowsToValidate || rowsToValidate.length === 0) return;
+  // Run Validate-Only (Does not write to DB)
+  const handleValidateOnly = async () => {
+    if (!rawRows || rawRows.length === 0) {
+      setImportError('Please upload an Excel file first.');
+      return;
+    }
+
     setValidating(true);
     setImportError(null);
     try {
-      const report = await validateApplicationData(selectedAppId, selectedLevel, rowsToValidate);
-      setValidationReport(report);
+      const rep = await validateApplicationData(selectedAppId, 'VOTER', rawRows, {
+        targetConstituencyId: targetConstituency?.id,
+        columnMapping,
+        fileName: file?.name,
+      });
+      setValidationReport(rep);
     } catch (err: any) {
       setImportError(`Validation failed: ${err.message}`);
     } finally {
@@ -171,164 +308,156 @@ export default function AssignDataModule({
     }
   };
 
-  // Execute Final Import
-  const handleCommitImport = async () => {
-    if (!rawRows || rawRows.length === 0) return;
+  // Download Sample Excel Template
+  const handleDownloadSampleExcel = () => {
+    const sampleHeaders = [
+      {
+        'Voter ID / EPIC': 'AP01009823',
+        'Voter Name': 'Ravi Kumar',
+        'Father / Husband Name': 'Venkata Rao',
+        'Relation Type': 'FATHER',
+        Age: '34',
+        Gender: 'MALE',
+        'Mobile Number': '9876543210',
+        'House No': '4-12/A',
+        Mandal: targetConstituency?.name ? `${targetConstituency.name} Mandal` : 'Kondapi Mandal',
+        'Village / Ward': 'Ponnaluru',
+        'Booth Number': '101',
+        '100-Voter Group': 'Group 1',
+        Caste: 'BC-A',
+        Profession: 'Agriculture',
+        'Political Preference': 'TDP',
+      },
+      {
+        'Voter ID / EPIC': 'AP01009824',
+        'Voter Name': 'Lakshmi Devi',
+        'Father / Husband Name': 'Ravi Kumar',
+        'Relation Type': 'HUSBAND',
+        Age: '31',
+        Gender: 'FEMALE',
+        'Mobile Number': '9876543211',
+        'House No': '4-12/A',
+        Mandal: targetConstituency?.name ? `${targetConstituency.name} Mandal` : 'Kondapi Mandal',
+        'Village / Ward': 'Ponnaluru',
+        'Booth Number': '101',
+        '100-Voter Group': 'Group 1',
+        Caste: 'BC-A',
+        Profession: 'Homemaker',
+        'Political Preference': 'TDP',
+      },
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(sampleHeaders);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sample_Voters');
+    XLSX.writeFile(wb, `${targetConstituency?.name || 'Constituency'}_Sample_Voter_Template.xlsx`);
+  };
+
+  // Check required field mappings
+  const unmappedRequiredFields = useMemo(() => {
+    const requiredKeys = ['epicNumber', 'fullName', 'age', 'gender', 'mandal', 'village', 'boothNumber'];
+    const mappedValues = new Set(Object.values(columnMapping));
+    return requiredKeys.filter((key) => !mappedValues.has(key));
+  }, [columnMapping]);
+
+  // Execute Final Ingestion (Append or Replace)
+  const executeImport = async () => {
+    if (!targetConstituency) return;
     setImporting(true);
+    setUploadStep('importing');
+    setImportProgress(10);
     setImportError(null);
-    try {
-      const res = await importApplicationData(selectedAppId, {
-        level: selectedLevel,
-        rows: rawRows,
-        importMode,
-        voterGroupSize,
-        fileName: file?.name || 'import.xlsx',
+
+    const progressTimer = setInterval(() => {
+      setImportProgress((prev) => {
+        if (prev < 90) return prev + Math.floor(Math.random() * 15) + 5;
+        return prev;
       });
-      setImportResult(res);
+    }, 400);
+
+    try {
+      const summary = await importApplicationData(selectedAppId, {
+        level: 'VOTER',
+        rows: rawRows,
+        targetConstituencyId: targetConstituency.id,
+        columnMapping,
+        importMode,
+        voterGroupSize: clusterSize,
+        fileName: file?.name || 'import.xlsx',
+        fileSize: file?.size || 0,
+      });
+
+      clearInterval(progressTimer);
+      setImportProgress(100);
+      setImportSummary(summary);
+      setUploadStep('summary');
+
+      // Refresh constituency table
+      loadConstituencies();
     } catch (err: any) {
+      clearInterval(progressTimer);
       setImportError(`Import failed: ${err.message}`);
+      setUploadStep('preview');
     } finally {
       setImporting(false);
     }
   };
 
-  // Download Sample Template
-  const handleDownloadTemplate = () => {
-    let headers: Record<string, string>[] = [];
-    if (selectedLevel === 'VOTER') {
-      headers = [
-        {
-          'Serial Number': '1',
-          'Voter ID / EPIC': 'AP01009823',
-          'Full Name': 'Ravi Kumar',
-          'Relative Name': 'Venkata Rao',
-          'Relation Type': 'FATHER',
-          Gender: 'MALE',
-          Age: '34',
-          'House No': '4-12/A',
-          'Mobile Number': '9876543210',
-          Mandal: 'Kondapi',
-          Village: 'Ponnaluru',
-          'Booth Number': '101',
-          '100-Voter Group': 'Group 1',
-          Caste: 'BC-A',
-          Profession: 'Agriculture',
-          'Political Preference': 'TDP',
-        },
-        {
-          'Serial Number': '2',
-          'Voter ID / EPIC': 'AP01009824',
-          'Full Name': 'Lakshmi Devi',
-          'Relative Name': 'Ravi Kumar',
-          'Relation Type': 'HUSBAND',
-          Gender: 'FEMALE',
-          Age: '31',
-          'House No': '4-12/A',
-          'Mobile Number': '9876543211',
-          Mandal: 'Kondapi',
-          Village: 'Ponnaluru',
-          'Booth Number': '101',
-          '100-Voter Group': 'Group 1',
-          Caste: 'BC-A',
-          Profession: 'Homemaker',
-          'Political Preference': 'TDP',
-        },
-      ];
-    } else if (selectedLevel === 'BOOTH') {
-      headers = [
-        {
-          'Booth Number': '101',
-          'Polling Station Name': 'ZPHS High School Main Hall',
-          Village: 'Ponnaluru',
-          Mandal: 'Kondapi',
-          Constituency: selectedApp?.appName || 'Kondapi',
-        },
-        {
-          'Booth Number': '102',
-          'Polling Station Name': 'Panchayat Office Room 1',
-          Village: 'Ponnaluru',
-          Mandal: 'Kondapi',
-          Constituency: selectedApp?.appName || 'Kondapi',
-        },
-      ];
-    } else {
-      headers = [
-        {
-          'Mandal Name': 'Kondapi',
-          'Village Name': 'Ponnaluru',
-          Constituency: selectedApp?.appName || 'Kondapi',
-        },
-      ];
-    }
-
-    const ws = XLSX.utils.json_to_sheet(headers);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    XLSX.writeFile(wb, `${selectedApp?.appName || 'App'}_${selectedLevel}_Template.xlsx`);
-  };
-
-  // Download Error Report CSV
-  const handleDownloadErrorReport = () => {
-    if (!validationReport?.errors || validationReport.errors.length === 0) return;
-    const ws = XLSX.utils.json_to_sheet(validationReport.errors);
+  // Download Error Report CSV for an import
+  const handleDownloadErrors = (errorsList: any[], filename = 'errors.csv') => {
+    if (!errorsList || errorsList.length === 0) return;
+    const ws = XLSX.utils.json_to_sheet(errorsList);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Errors');
-    XLSX.writeFile(wb, `Import_Errors_${Date.now()}.csv`);
+    XLSX.writeFile(wb, filename);
   };
 
-  // Filtered preview rows
-  const filteredPreview = useMemo(() => {
-    if (!validationReport?.preview) return [];
-    return validationReport.preview.filter((row) => {
-      const matchStatus = statusFilter === 'ALL' || row.status === statusFilter;
+  // Filtered constituencies in list view
+  const filteredConstituencies = useMemo(() => {
+    return constituencies.filter((c) => {
+      const matchStatus = acStatusFilter === 'ALL' || c.importStatus === acStatusFilter;
       const matchSearch =
-        previewSearch === '' ||
-        row.epicNumber.toLowerCase().includes(previewSearch.toLowerCase()) ||
-        row.name.toLowerCase().includes(previewSearch.toLowerCase()) ||
-        row.mandal.toLowerCase().includes(previewSearch.toLowerCase()) ||
-        row.village.toLowerCase().includes(previewSearch.toLowerCase()) ||
-        row.booth.toLowerCase().includes(previewSearch.toLowerCase());
+        acSearch === '' ||
+        c.name.toLowerCase().includes(acSearch.toLowerCase()) ||
+        c.code.toLowerCase().includes(acSearch.toLowerCase()) ||
+        c.parliamentName.toLowerCase().includes(acSearch.toLowerCase());
       return matchStatus && matchSearch;
     });
-  }, [validationReport, statusFilter, previewSearch]);
+  }, [constituencies, acSearch, acStatusFilter]);
 
   return (
-    <div className="min-h-screen bg-slate-900/95 text-slate-100 p-3 sm:p-6 font-['Inter',sans-serif] flex justify-center items-start">
-      <div className="w-full max-w-7xl bg-slate-100 rounded-[28px] shadow-2xl border border-slate-300 overflow-hidden text-slate-900">
+    <div className="min-h-screen bg-slate-900/95 text-slate-100 p-3 sm:p-6 font-sans flex justify-center items-start">
+      <div className="w-full max-w-7xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-slate-900 flex flex-col">
         {/* Header Ribbon */}
-        <div className="bg-[#0F172A] text-white px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-md">
-              <FileSpreadsheet className="w-6 h-6" />
+        <div className="bg-slate-950 text-white px-6 py-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-400 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
+              <Database className="w-6 h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold uppercase tracking-widest text-amber-400">
-                  CMS DATA INGESTION
+                <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-amber-400">
+                  CMS Operations Studio
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950">
-                  PHASE 2
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950">
+                  Assign Data
                 </span>
               </div>
-              <h1 className="text-lg font-black tracking-tight text-white">
-                Assign Data & Dynamic Hierarchy Ingestion
+              <h1 className="text-xl font-black tracking-tight text-white">
+                Assign Data & Hierarchy Roll Ingestion
               </h1>
             </div>
           </div>
 
-          {/* Application Selector */}
-          <div className="flex items-center gap-3">
-            <div className="bg-slate-800/90 border border-slate-700 rounded-xl px-3 py-1.5 flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Application Selector */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 flex items-center gap-2 shadow-inner">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Application:
+                App:
               </span>
               <select
                 value={selectedAppId}
-                onChange={(e) => {
-                  setSelectedAppId(e.target.value);
-                  setValidationReport(null);
-                  setImportResult(null);
-                }}
+                onChange={(e) => setSelectedAppId(e.target.value)}
                 className="bg-transparent text-amber-400 font-black text-xs focus:outline-none cursor-pointer"
               >
                 {applications.map((app) => (
@@ -339,463 +468,989 @@ export default function AssignDataModule({
               </select>
             </div>
 
+            {/* Incharges Navigation */}
             {onNavigateToIncharges && (
               <button
                 onClick={() => onNavigateToIncharges(selectedAppId)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black transition shadow-sm cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
               >
-                Assign Incharges <ArrowRight className="w-3.5 h-3.5" />
+                <span>Assign Incharges</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}
 
+            {/* Close Button */}
             {onClose && (
               <button
                 onClick={onClose}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
+                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition cursor-pointer"
+                title="Close"
               >
-                Close
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center justify-between">
+        {/* Dynamic Hierarchy Visual Strip */}
+        <div className="bg-slate-900 border-b border-slate-800 px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 overflow-x-auto py-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              Scope:
+            </span>
+            <span className="px-2.5 py-1 rounded-lg text-[11px] font-black uppercase tracking-wider bg-amber-400/10 text-amber-400 border border-amber-400/20">
+              {appConfig?.appScope || 'PARLIAMENT_MP'}
+            </span>
+
+            <span className="text-slate-600 font-bold mx-1">|</span>
+
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Hierarchy:
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto text-[11px] font-medium text-slate-300">
+              {hierarchyLevels.map((lvl, idx) => (
+                <React.Fragment key={lvl}>
+                  <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 font-semibold text-slate-300 whitespace-nowrap">
+                    {hierarchyLabels[lvl] || lvl}
+                  </span>
+                  {idx < hierarchyLevels.length - 1 && (
+                    <ChevronRight className="w-3 h-3 text-slate-600 shrink-0" />
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveTab('upload')}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
-                activeTab === 'upload'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100'
+              onClick={() => setActiveTab('list')}
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer ${
+                activeTab === 'list'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Upload className="w-3.5 h-3.5" /> Ingest New Roll
+              Constituency List
             </button>
             <button
               onClick={() => setActiveTab('history')}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+              className={`px-3 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'history'
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-amber-400 text-slate-950 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Clock className="w-3.5 h-3.5" /> Ingestion History
+              <Clock className="w-3.5 h-3.5" />
+              Import History
             </button>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-slate-500 font-semibold">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Strict Parent-Child Hierarchy Validation Active</span>
           </div>
         </div>
 
-        {/* Tab Content */}
-        <div className="p-6 bg-slate-50 min-h-[550px]">
-          {activeTab === 'upload' ? (
-            <div className="space-y-6">
-              {/* Configuration Ribbon */}
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                {/* 1. Hierarchy Level */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                    1. Data Type / Hierarchy Level
-                  </label>
-                  <select
-                    value={selectedLevel}
-                    onChange={(e) => {
-                      setSelectedLevel(e.target.value);
-                      setValidationReport(null);
-                      setImportResult(null);
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="VOTER">Voter Electoral Roll (Full Hierarchy)</option>
-                    <option value="BOOTH">Polling Booths Master</option>
-                    <option value="VILLAGE">Villages / Wards Master</option>
-                    <option value="MANDAL">Mandals / Blocks Master</option>
-                  </select>
-                </div>
+        {/* Tab 1: Assembly / Constituency Table (List Mode) */}
+        {activeTab === 'list' && (
+          <div className="p-6 space-y-5">
+            {/* Cascading Target Scope Selectors */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  Target Filter:
+                </span>
+                <select
+                  value={selectedParliamentId}
+                  onChange={(e) => setSelectedParliamentId(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  <option value="ALL">All Parliaments</option>
+                  {Array.from(new Set(constituencies.map((c) => c.parliamentName))).map((pName) => (
+                    <option key={pName} value={constituencies.find((c) => c.parliamentName === pName)?.id}>
+                      {pName}
+                    </option>
+                  ))}
+                </select>
 
-                {/* 2. Ingestion Mode */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                    2. Ingestion Mode
-                  </label>
-                  <select
-                    value={importMode}
-                    onChange={(e) => setImportMode(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
-                  >
-                    <option value="APPEND">Incremental Upsert (Safe Update)</option>
-                    <option value="REPLACE">Full Overwrite (Purge & Replace)</option>
-                  </select>
-                </div>
-
-                {/* 3. Micro-Cluster Size */}
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                    3. Auto-Group Cluster Size
-                  </label>
-                  <select
-                    value={voterGroupSize}
-                    onChange={(e) => setVoterGroupSize(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
-                  >
-                    <option value={50}>50 Voters / Cluster</option>
-                    <option value={100}>100 Voters / Cluster (Standard VIAP)</option>
-                    <option value={200}>200 Voters / Cluster</option>
-                  </select>
-                </div>
-
-                {/* 4. Template Action */}
-                <div className="flex flex-col justify-end pt-1">
-                  <button
-                    onClick={handleDownloadTemplate}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-xl px-3 py-2 text-xs font-black transition cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5 text-amber-600" />
-                    Download Sample Excel
-                  </button>
-                </div>
+                <select
+                  value={acStatusFilter}
+                  onChange={(e: any) => setAcStatusFilter(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="SUCCESS">Success</option>
+                  <option value="PARTIAL_SUCCESS">Partial Success</option>
+                  <option value="PENDING">Pending (No Data)</option>
+                  <option value="FAILED">Failed</option>
+                </select>
               </div>
 
-              {/* Upload Dropzone */}
-              <div className="bg-white p-6 rounded-2xl border-2 border-dashed border-slate-300 hover:border-amber-500 transition-colors text-center relative shadow-xs">
+              {/* Search */}
+              <div className="relative w-full md:w-72">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="file"
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleFileUpload}
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  type="text"
+                  placeholder="Search Assembly / Constituency..."
+                  value={acSearch}
+                  onChange={(e) => setAcSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
-                <div className="flex flex-col items-center justify-center gap-2 py-4">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mb-1">
-                    <Upload className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-sm font-black text-slate-800">
-                    {file ? file.name : 'Drag & drop Excel (.xlsx, .xls) or CSV file here'}
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium">
-                    {file
-                      ? `${(file.size / 1024).toFixed(1)} KB — Click to select a different file`
-                      : 'Electoral roll spreadsheets with Mandal, Village, Booth, and Voter records'}
-                  </p>
-                </div>
+              </div>
+            </div>
+
+            {/* Constituencies Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4 w-12 text-center">S.No</th>
+                      <th className="py-3 px-4">Assembly / Constituency</th>
+                      <th className="py-3 px-4">Parliament</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4 text-right">Mandals</th>
+                      <th className="py-3 px-4 text-right">Booths</th>
+                      <th className="py-3 px-4 text-right">Voters</th>
+                      <th className="py-3 px-4">Last Imported</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {loadingConstituencies ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
+                          Loading Assembly Constituencies...
+                        </td>
+                      </tr>
+                    ) : filteredConstituencies.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          No Assembly Constituencies match the selected filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredConstituencies.map((ac, idx) => (
+                        <tr key={ac.id} className="hover:bg-amber-50/40 transition">
+                          <td className="py-3.5 px-4 text-center text-slate-400 font-bold">{idx + 1}</td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900">{ac.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono">{ac.code}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600">{ac.parliamentName}</td>
+                          <td className="py-3.5 px-4 text-center">
+                            {ac.importStatus === 'SUCCESS' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="w-3 h-3" /> Success
+                              </span>
+                            ) : ac.importStatus === 'PARTIAL_SUCCESS' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800">
+                                <AlertTriangle className="w-3 h-3" /> Partial
+                              </span>
+                            ) : ac.importStatus === 'FAILED' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800">
+                                <XCircle className="w-3 h-3" /> Failed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600">
+                                <Clock className="w-3 h-3" /> Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-slate-700">{ac.mandalsCount}</td>
+                          <td className="py-3.5 px-4 text-right font-mono text-slate-700">{ac.boothsCount}</td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
+                            {ac.importedRecords > 0 ? ac.importedRecords.toLocaleString() : '—'}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500 text-[11px]">
+                            {ac.lastImported ? new Date(ac.lastImported).toLocaleDateString() : 'Never'}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              onClick={() => handleOpenUploadForTarget(ac)}
+                              className="px-3.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-sm transition active:scale-95 cursor-pointer flex items-center gap-1.5 mx-auto"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>Upload Data</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Import History */}
+        {activeTab === 'history' && (
+          <div className="p-6 space-y-5">
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Filter:</span>
+                <select
+                  value={historyStatusFilter}
+                  onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-sm focus:outline-none"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="SUCCESS">Success</option>
+                  <option value="PARTIAL_SUCCESS">Partial Success</option>
+                  <option value="FAILED">Failed</option>
+                  <option value="PROCESSING">Processing</option>
+                </select>
+
+                <select
+                  value={historyConstituencyFilter}
+                  onChange={(e) => setHistoryConstituencyFilter(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-sm focus:outline-none"
+                >
+                  <option value="ALL">All Constituencies</option>
+                  {constituencies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {isParsing && (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-3 text-amber-900 font-bold text-xs">
-                  <RefreshCw className="w-4 h-4 animate-spin text-amber-600" />
-                  Parsing spreadsheet in browser and generating pre-flight validation...
-                </div>
-              )}
+              <button
+                onClick={() => loadHistory(1)}
+                className="px-3 py-2 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} />
+                Refresh History
+              </button>
+            </div>
 
-              {importError && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-3 text-red-800 font-bold text-xs">
-                  <XCircle className="w-4 h-4 text-red-600 shrink-0" />
-                  {importError}
-                </div>
-              )}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4">Import ID</th>
+                      <th className="py-3 px-4">Constituency</th>
+                      <th className="py-3 px-4">File Name</th>
+                      <th className="py-3 px-4">Uploaded By</th>
+                      <th className="py-3 px-4">Upload Date</th>
+                      <th className="py-3 px-4 text-right">Total</th>
+                      <th className="py-3 px-4 text-right">Imported</th>
+                      <th className="py-3 px-4 text-right">Failed</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {loadingHistory ? (
+                      <tr>
+                        <td colSpan={10} className="py-12 text-center text-slate-400">
+                          <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
+                          Loading Import History...
+                        </td>
+                      </tr>
+                    ) : historyItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="py-12 text-center text-slate-400">
+                          No import history records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      historyItems.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition">
+                          <td className="py-3.5 px-4 font-mono text-[10px] text-slate-500">
+                            {item.id.slice(0, 8)}...
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-slate-900">{item.constituencyName}</td>
+                          <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px] truncate max-w-[150px]">
+                            {item.fileName}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600">{item.uploadedBy}</td>
+                          <td className="py-3.5 px-4 text-slate-500 text-[11px]">
+                            {new Date(item.createdAt).toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-slate-700">{item.totalRecords}</td>
+                          <td className="py-3.5 px-4 text-right font-mono text-emerald-600 font-bold">
+                            {item.importedRecords}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-rose-600 font-bold">
+                            {item.failedRecords}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                item.status === 'SUCCESS'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : item.status === 'PARTIAL_SUCCESS'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}
+                            >
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {item.failedRecords > 0 && (
+                                <button
+                                  onClick={async () => {
+                                    setSelectedHistoryForErrors(item);
+                                    setLoadingErrors(true);
+                                    const errs = await fetchDataImportErrors(item.id);
+                                    setHistoryErrors(errs);
+                                    setLoadingErrors(false);
+                                  }}
+                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                                  title="View Errors"
+                                >
+                                  <AlertCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                              <a
+                                href={`/api/applications/${selectedAppId}/data/imports/${item.id}/error-report`}
+                                download
+                                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                                title="Download Error Report CSV"
+                              >
+                                <Download className="w-4 h-4" />
+                              </a>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
-              {/* Validation Results Stage */}
-              {validationReport && (
-                <div className="space-y-4 animate-fadeIn">
-                  {/* Metric Ribbons */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                      <span className="text-[10px] font-black uppercase text-slate-400">Total Rows</span>
-                      <div className="text-xl font-black text-slate-900 mt-0.5">
-                        {validationReport.totalRows}
-                      </div>
-                      <div className="text-[10px] font-bold text-slate-500 mt-0.5">Rows detected in file</div>
+        {/* Upload Drawer / Modal Flow for Target Constituency */}
+        {isUploadModalOpen && targetConstituency && (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+            <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-slate-900 flex flex-col my-auto max-h-[90vh]">
+              {/* Modal Header */}
+              <div className="bg-slate-950 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono text-amber-400 uppercase font-bold tracking-widest">
+                      TARGET ASSEMBLY INGESTION
                     </div>
-
-                    <div className="bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/30 shadow-xs">
-                      <span className="text-[10px] font-black uppercase text-emerald-700">Valid Records</span>
-                      <div className="text-xl font-black text-emerald-700 mt-0.5">
-                        {validationReport.validRows}
-                      </div>
-                      <div className="text-[10px] font-bold text-emerald-600 mt-0.5">
-                        Ready for database commit
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-2xl border border-red-200 bg-red-50/30 shadow-xs">
-                      <span className="text-[10px] font-black uppercase text-red-700">Errors Found</span>
-                      <div className="text-xl font-black text-red-700 mt-0.5">
-                        {validationReport.invalidRows}
-                      </div>
-                      <div className="text-[10px] font-bold text-red-600 mt-0.5">
-                        {validationReport.invalidRows === 0 ? 'Zero blocking errors' : 'Requires correction'}
-                      </div>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/30 shadow-xs">
-                      <span className="text-[10px] font-black uppercase text-amber-700">Duplicates</span>
-                      <div className="text-xl font-black text-amber-700 mt-0.5">
-                        {validationReport.duplicateCount}
-                      </div>
-                      <div className="text-[10px] font-bold text-amber-600 mt-0.5">
-                        Duplicate EPICs/Booths
-                      </div>
+                    <div className="text-base font-black text-white">
+                      {targetConstituency.name} ({targetConstituency.parliamentName})
                     </div>
                   </div>
+                </div>
 
-                  {/* Actions Bar */}
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-slate-700">Filter Preview:</span>
-                      {(['ALL', 'VALID', 'ERROR', 'WARNING'] as const).map((st) => (
-                        <button
-                          key={st}
-                          onClick={() => setStatusFilter(st)}
-                          className={`px-3 py-1 rounded-xl text-xs font-black transition ${
-                            statusFilter === st
-                              ? 'bg-slate-900 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {st}
-                        </button>
-                      ))}
-                    </div>
+                <button
+                  onClick={() => setIsUploadModalOpen(false)}
+                  className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-                    <div className="flex items-center gap-2.5 w-full sm:w-auto">
-                      {validationReport.errors.length > 0 && (
-                        <button
-                          onClick={handleDownloadErrorReport}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-800 rounded-xl text-xs font-black transition cursor-pointer"
-                        >
-                          <Download className="w-3.5 h-3.5" /> Download Error Report ({validationReport.errors.length})
-                        </button>
+              {/* Progress Steps Header */}
+              <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2 font-bold">
+                  <span className={`px-2.5 py-1 rounded-lg ${uploadStep === 'upload' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-600'}`}>
+                    1. Upload & Validate
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className={`px-2.5 py-1 rounded-lg ${uploadStep === 'mapping' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-600'}`}>
+                    2. Column Mapping
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <span className={`px-2.5 py-1 rounded-lg ${uploadStep === 'preview' ? 'bg-amber-500 text-slate-950' : 'bg-slate-200 text-slate-600'}`}>
+                    3. Preview & Import
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleDownloadSampleExcel}
+                  className="flex items-center gap-1.5 text-xs font-bold text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download Sample Excel
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 overflow-y-auto space-y-5 flex-1">
+                {importError && (
+                  <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs font-medium flex items-center gap-3">
+                    <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                    <span>{importError}</span>
+                  </div>
+                )}
+
+                {/* STEP 1: Upload & Validate Only */}
+                {uploadStep === 'upload' && (
+                  <div className="space-y-6">
+                    {/* Drag & Drop File Zone */}
+                    <div className="border-2 border-dashed border-slate-300 hover:border-amber-500 rounded-3xl p-8 text-center transition cursor-pointer bg-slate-50/50 relative">
+                      <input
+                        type="file"
+                        accept=".xlsx, .xls"
+                        onChange={handleFileChange}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      />
+                      <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                        <FileSpreadsheet className="w-7 h-7" />
+                      </div>
+                      <div className="text-sm font-bold text-slate-900 mb-1">
+                        {file ? file.name : 'Click or Drag Excel file to upload'}
+                      </div>
+                      <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                        Supports <span className="font-semibold text-slate-700">.xlsx</span> and{' '}
+                        <span className="font-semibold text-slate-700">.xls</span> formats. File will be validated before final ingestion.
+                      </p>
+                      {file && (
+                        <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
+                          <Check className="w-3.5 h-3.5" /> {(file.size / 1024).toFixed(1)} KB loaded ({rawRows.length} rows)
+                        </div>
                       )}
-
-                      <button
-                        onClick={handleCommitImport}
-                        disabled={importing || validationReport.validRows === 0}
-                        className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 text-white rounded-xl text-xs font-black uppercase tracking-wider transition shadow-sm cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {importing ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" /> Ingesting to DB...
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle2 className="w-4 h-4" /> Confirm & Ingest ({validationReport.validRows} Records)
-                          </>
-                        )}
-                      </button>
                     </div>
-                  </div>
 
-                  {/* Preview Table */}
-                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                    <div className="px-4 py-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between">
-                      <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
-                        Spreadsheet Verification Preview (Showing {filteredPreview.length} records)
-                      </h4>
-                      <div className="relative w-64">
-                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          placeholder="Search preview rows..."
-                          value={previewSearch}
-                          onChange={(e) => setPreviewSearch(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 focus:outline-none"
-                        />
+                    {/* Validate Only Trigger */}
+                    {file && rawRows.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-slate-100 rounded-2xl border border-slate-200">
+                        <div>
+                          <div className="text-xs font-bold text-slate-800">Pre-flight Data Validation</div>
+                          <div className="text-[11px] text-slate-500">
+                            Inspect rows, detect duplicates, and verify hierarchy alignment without modifying database.
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleValidateOnly}
+                            disabled={validating}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <ShieldCheck className="w-4 h-4 text-amber-400" />
+                            <span>{validating ? 'Validating...' : 'Validate Only'}</span>
+                          </button>
+                        </div>
                       </div>
+                    )}
+
+                    {/* Validation Report Card */}
+                    {validationReport && (
+                      <div className="space-y-4 border border-slate-200 rounded-2xl p-4 bg-white shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Validation Summary
+                          </div>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                              validationReport.invalidRows === 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {validationReport.invalidRows === 0 ? 'All Rows Valid' : `${validationReport.invalidRows} Issues Found`}
+                          </span>
+                        </div>
+
+                        {/* Summary Metrics */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                            <div className="text-xl font-black text-slate-900">{validationReport.totalRows}</div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Total Rows</div>
+                          </div>
+                          <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-center">
+                            <div className="text-xl font-black text-emerald-700">{validationReport.validRows}</div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-emerald-600">Valid</div>
+                          </div>
+                          <div className="p-3 bg-rose-50 rounded-xl border border-rose-100 text-center">
+                            <div className="text-xl font-black text-rose-700">{validationReport.invalidRows}</div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-rose-600">Invalid</div>
+                          </div>
+                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-center">
+                            <div className="text-xl font-black text-amber-700">{validationReport.duplicateCount}</div>
+                            <div className="text-[10px] uppercase tracking-wider font-bold text-amber-600">Duplicates</div>
+                          </div>
+                        </div>
+
+                        {/* Validation Errors List Table */}
+                        {validationReport.errors.length > 0 && (
+                          <div className="space-y-2 pt-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-slate-700">Error Inspection Table:</span>
+                              <button
+                                onClick={() => handleDownloadErrors(validationReport.errors, 'validation_errors.csv')}
+                                className="text-[11px] font-bold text-amber-600 hover:text-amber-700 flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" /> Download CSV
+                              </button>
+                            </div>
+                            <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl">
+                              <table className="w-full text-left text-[11px]">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold sticky top-0">
+                                  <tr>
+                                    <th className="py-2 px-3 w-16">Row</th>
+                                    <th className="py-2 px-3">Field</th>
+                                    <th className="py-2 px-3">Error Message</th>
+                                    <th className="py-2 px-3">Suggestion</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium">
+                                  {validationReport.errors.map((err, i) => (
+                                    <tr key={i} className="hover:bg-rose-50/30">
+                                      <td className="py-2 px-3 font-mono font-bold text-slate-500">#{err.rowNumber}</td>
+                                      <td className="py-2 px-3 font-semibold text-slate-800">{err.field}</td>
+                                      <td className="py-2 px-3 text-rose-700 font-bold">{err.message}</td>
+                                      <td className="py-2 px-3 text-slate-500">{err.suggestion}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* STEP 2: Column Mapping Interface */}
+                {uploadStep === 'mapping' && (
+                  <div className="space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs">
+                      <div>
+                        <span className="font-bold">Column Mapping:</span> Map Excel spreadsheet columns on the left to official platform fields on the right.
+                      </div>
+                      {unmappedRequiredFields.length > 0 && (
+                        <span className="px-2 py-0.5 rounded bg-rose-200 text-rose-900 font-bold text-[10px]">
+                          {unmappedRequiredFields.length} Required Fields Unmapped
+                        </span>
+                      )}
                     </div>
 
-                    <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold sticky top-0 uppercase text-[10px]">
+                    <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-96 overflow-y-auto shadow-sm">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] sticky top-0">
                           <tr>
-                            <th className="py-2.5 px-3">Row</th>
-                            <th className="py-2.5 px-3">EPIC / ID</th>
-                            <th className="py-2.5 px-3">Voter Name</th>
-                            <th className="py-2.5 px-3">Mandal</th>
-                            <th className="py-2.5 px-3">Village</th>
-                            <th className="py-2.5 px-3">Booth</th>
-                            <th className="py-2.5 px-3">100-Group</th>
-                            <th className="py-2.5 px-3">Status</th>
-                            <th className="py-2.5 px-3">Validation Details</th>
+                            <th className="py-3 px-4">Excel Column Header</th>
+                            <th className="py-3 px-4">Sample Row Data</th>
+                            <th className="py-3 px-4 w-64">System Field</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                          {filteredPreview.map((r) => (
-                            <tr
-                              key={r.rowNumber}
-                              className={
-                                r.status === 'ERROR'
-                                  ? 'bg-red-50/40 hover:bg-red-50/70'
-                                  : r.status === 'WARNING'
-                                  ? 'bg-amber-50/40 hover:bg-amber-50/70'
-                                  : 'hover:bg-slate-50'
-                              }
-                            >
-                              <td className="py-2 px-3 font-mono font-bold text-slate-500">#{r.rowNumber}</td>
-                              <td className="py-2 px-3 font-mono font-bold text-slate-900">{r.epicNumber}</td>
-                              <td className="py-2 px-3 font-bold text-slate-800">{r.name}</td>
-                              <td className="py-2 px-3">{r.mandal}</td>
-                              <td className="py-2 px-3">{r.village}</td>
-                              <td className="py-2 px-3 font-mono font-bold">{r.booth}</td>
-                              <td className="py-2 px-3">{r.voterGroup}</td>
-                              <td className="py-2 px-3">
-                                {r.status === 'VALID' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> VALID
-                                  </span>
-                                )}
-                                {r.status === 'WARNING' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800">
-                                    <AlertTriangle className="w-3 h-3 text-amber-600" /> WARNING
-                                  </span>
-                                )}
-                                {r.status === 'ERROR' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-red-100 text-red-800">
-                                    <XCircle className="w-3 h-3 text-red-600" /> ERROR
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-2 px-3 text-[11px] text-slate-600">{r.reason}</td>
-                            </tr>
-                          ))}
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {fileHeaders.map((header) => {
+                            const currentTarget = columnMapping[header] || '';
+                            const sampleVal = rawRows[0]?.[header];
+
+                            return (
+                              <tr key={header} className="hover:bg-slate-50">
+                                <td className="py-3 px-4 font-bold text-slate-800">{header}</td>
+                                <td className="py-3 px-4 text-slate-500 font-mono text-[11px] truncate max-w-xs">
+                                  {sampleVal !== undefined && sampleVal !== '' ? String(sampleVal) : '—'}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <select
+                                    value={currentTarget}
+                                    onChange={(e) => {
+                                      setColumnMapping((prev) => ({
+                                        ...prev,
+                                        [header]: e.target.value,
+                                      }));
+                                    }}
+                                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                                  >
+                                    <option value="">— Ignore this column —</option>
+                                    {systemFieldsCatalog.map((sf) => (
+                                      <option key={sf.key} value={sf.key}>
+                                        {sf.label} {sf.required ? '*' : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Successful Import Summary Banner */}
-              {importResult && (
-                <div className="p-6 bg-white rounded-2xl border-2 border-emerald-500 shadow-md animate-fadeIn space-y-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-black">
-                      <CheckCircle2 className="w-6 h-6" />
+                {/* STEP 3: Data Preview & Import Configuration */}
+                {uploadStep === 'preview' && (
+                  <div className="space-y-5">
+                    {/* Mode & Configuration Selection */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Import Ingestion Mode:
+                        </label>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="importMode"
+                              value="APPEND"
+                              checked={importMode === 'APPEND'}
+                              onChange={() => setImportMode('APPEND')}
+                              className="text-amber-500 focus:ring-amber-400"
+                            />
+                            <span>Append Data (Keep existing)</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs font-bold text-rose-700 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="importMode"
+                              value="REPLACE"
+                              checked={importMode === 'REPLACE'}
+                              onChange={() => setImportMode('REPLACE')}
+                              className="text-rose-600 focus:ring-rose-500"
+                            />
+                            <span>Replace Data (Wipe AC voters first)</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Cluster Size (Voters per 100-Group):
+                        </label>
+                        <select
+                          value={clusterSize}
+                          onChange={(e) => setClusterSize(parseInt(e.target.value, 10))}
+                          className="px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-sm focus:outline-none"
+                        >
+                          <option value={50}>50 Voters</option>
+                          <option value={100}>100 Voters (Standard)</option>
+                          <option value={150}>150 Voters</option>
+                          <option value={200}>200 Voters</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-black text-base text-slate-900">
-                        Spreadsheet Successfully Ingested to Database!
+
+                    {/* Preview Table of First 50 Mapped Records */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-700">
+                          Data Preview (First {Math.min(50, rawRows.length)} Records):
+                        </span>
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Total {rawRows.length} records ready to import into {targetConstituency.name}
+                        </span>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden max-h-64 overflow-y-auto shadow-sm">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] sticky top-0">
+                            <tr>
+                              <th className="py-2.5 px-3">#</th>
+                              <th className="py-2.5 px-3">EPIC Number</th>
+                              <th className="py-2.5 px-3">Full Name</th>
+                              <th className="py-2.5 px-3">Age / Gender</th>
+                              <th className="py-2.5 px-3">Mandal</th>
+                              <th className="py-2.5 px-3">Village</th>
+                              <th className="py-2.5 px-3">Booth</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium text-[11px]">
+                            {rawRows.slice(0, 50).map((row, idx) => {
+                              const epic = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'epicNumber') || ''] || row.epicNumber || row['Voter ID'] || '—';
+                              const name = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'fullName') || ''] || row.fullName || row['Voter Name'] || '—';
+                              const age = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'age') || ''] || row.age || '—';
+                              const gender = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'gender') || ''] || row.gender || '—';
+                              const mandal = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'mandal') || ''] || row.mandal || '—';
+                              const village = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'village') || ''] || row.village || '—';
+                              const booth = row[Object.keys(columnMapping).find((k) => columnMapping[k] === 'boothNumber') || ''] || row.boothNumber || '—';
+
+                              return (
+                                <tr key={idx} className="hover:bg-slate-50">
+                                  <td className="py-2 px-3 text-slate-400 font-bold">{idx + 1}</td>
+                                  <td className="py-2 px-3 font-mono font-bold text-slate-800">{epic}</td>
+                                  <td className="py-2 px-3 font-semibold text-slate-900">{name}</td>
+                                  <td className="py-2 px-3 text-slate-600">{age} / {gender}</td>
+                                  <td className="py-2 px-3 text-slate-600">{mandal}</td>
+                                  <td className="py-2 px-3 text-slate-600">{village}</td>
+                                  <td className="py-2 px-3 font-mono font-bold text-amber-700">{booth}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* STEP 4: Importing Live Progress */}
+                {uploadStep === 'importing' && (
+                  <div className="py-12 px-6 text-center space-y-5">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto shadow-inner animate-pulse">
+                      <RefreshCw className="w-8 h-8 animate-spin text-amber-500" />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-base font-black text-slate-900">
+                        Ingesting {rawRows.length.toLocaleString()} Records into {targetConstituency.name}
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Job Reference: <span className="font-mono font-bold">{importResult.jobId}</span>
+                        Automatically mapping Mandals, creating missing Booths, and grouping voters into 100-clusters...
                       </p>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Total Rows</span>
-                      <div className="text-lg font-black text-slate-900">{importResult.totalRows}</div>
-                    </div>
-                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200">
-                      <span className="text-[10px] font-bold text-emerald-700 uppercase">Successfully Added</span>
-                      <div className="text-lg font-black text-emerald-700">{importResult.successCount}</div>
-                    </div>
-                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-200">
-                      <span className="text-[10px] font-bold text-blue-700 uppercase">Records Updated</span>
-                      <div className="text-lg font-black text-blue-700">{importResult.updatedCount}</div>
-                    </div>
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
-                      <span className="text-[10px] font-bold text-amber-700 uppercase">Skipped / Errors</span>
-                      <div className="text-lg font-black text-amber-700">{importResult.errorCount}</div>
+                    <div className="w-full max-w-md mx-auto space-y-2">
+                      <div className="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden border border-slate-200">
+                        <div
+                          className="bg-gradient-to-r from-amber-400 to-amber-500 h-full rounded-full transition-all duration-300 shadow-sm"
+                          style={{ width: `${importProgress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                        <span>Progress</span>
+                        <span>{importProgress}%</span>
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  <div className="flex items-center justify-end gap-3 pt-2">
-                    {onNavigateToIncharges && (
+                {/* STEP 5: Final Import Summary */}
+                {uploadStep === 'summary' && importSummary && (
+                  <div className="space-y-6 text-center py-6">
+                    <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-md">
+                      <CheckCircle2 className="w-9 h-9" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h3 className="text-lg font-black text-slate-900">
+                        Import Completed Successfully!
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Voter roll and polling booths have been registered into the {targetConstituency.name} hierarchy.
+                      </p>
+                    </div>
+
+                    {/* Summary KPI grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto">
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+                        <div className="text-2xl font-black text-slate-900">{importSummary.totalRows}</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-500">Total Rows</div>
+                      </div>
+                      <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-center">
+                        <div className="text-2xl font-black text-emerald-700">{importSummary.successCount}</div>
+                        <div className="text-[10px] font-bold uppercase text-emerald-600">Imported</div>
+                      </div>
+                      <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-center">
+                        <div className="text-2xl font-black text-amber-700">{importSummary.boothsCount || 0}</div>
+                        <div className="text-[10px] font-bold uppercase text-amber-600">Booths Mapped</div>
+                      </div>
+                      <div className="p-3 bg-blue-50 rounded-2xl border border-blue-200 text-center">
+                        <div className="text-2xl font-black text-blue-700">{importSummary.voterGroupsCount || 0}</div>
+                        <div className="text-[10px] font-bold uppercase text-blue-600">100-Groups</div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
                       <button
-                        onClick={() => onNavigateToIncharges(selectedAppId)}
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer"
+                        onClick={() => {
+                          setIsUploadModalOpen(false);
+                          setActiveTab('list');
+                        }}
+                        className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
                       >
-                        Proceed to Step 3: Assign Incharges <ArrowRight className="w-4 h-4" />
+                        Back to Constituencies
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsUploadModalOpen(false);
+                          setActiveTab('history');
+                        }}
+                        className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black transition shadow-sm cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        View in Import History
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer Navigation */}
+              {uploadStep !== 'importing' && uploadStep !== 'summary' && (
+                <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 flex items-center justify-between">
+                  {uploadStep === 'upload' ? (
+                    <button
+                      onClick={() => setIsUploadModalOpen(false)}
+                      className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (uploadStep === 'mapping') setUploadStep('upload');
+                        if (uploadStep === 'preview') setUploadStep('mapping');
+                      }}
+                      className="px-4 py-2 border border-slate-300 text-slate-600 hover:bg-slate-100 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" /> Back
+                    </button>
+                  )}
+
+                  <div className="flex items-center gap-3">
+                    {uploadStep === 'upload' && (
+                      <button
+                        onClick={() => setUploadStep('mapping')}
+                        disabled={!file || rawRows.length === 0}
+                        className="px-5 py-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <span>Configure Column Mapping</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {uploadStep === 'mapping' && (
+                      <button
+                        onClick={() => setUploadStep('preview')}
+                        disabled={unmappedRequiredFields.length > 0}
+                        className="px-5 py-2 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <span>Preview Mapped Data</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {uploadStep === 'preview' && (
+                      <button
+                        onClick={() => {
+                          if (importMode === 'REPLACE') {
+                            setShowReplaceConfirm(true);
+                          } else {
+                            executeImport();
+                          }
+                        }}
+                        className={`px-6 py-2 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-md ${
+                          importMode === 'REPLACE'
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                            : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                        }`}
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{importMode === 'REPLACE' ? 'Replace Constituency Data' : 'Append & Import Data'}</span>
                       </button>
                     )}
                   </div>
                 </div>
               )}
             </div>
-          ) : (
-            /* History Tab */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-black text-slate-800">Historical Import Jobs</h3>
-                  <p className="text-xs text-slate-500">Audit trail of all voter roll and hierarchy spreadsheets processed</p>
+          </div>
+        )}
+
+        {/* Replace Data Confirmation Dialog */}
+        {showReplaceConfirm && (
+          <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="max-w-md w-full bg-white rounded-3xl p-6 shadow-2xl border border-rose-200 text-center space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-base font-black text-slate-900">
+                  Confirm Data Replacement
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  You are about to <span className="font-bold text-rose-600">REPLACE</span> existing voter data for{' '}
+                  <span className="font-bold text-slate-900">{targetConstituency?.name}</span>. Existing voter records in this constituency will be cleared and replaced with this spreadsheet.
+                </p>
+                <div className="p-3 bg-rose-50 rounded-xl text-[11px] text-rose-800 font-medium">
+                  Note: Other constituencies and application configurations are strictly protected and will not be affected.
+                </div>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setShowReplaceConfirm(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowReplaceConfirm(false);
+                    executeImport();
+                  }}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-black shadow-md cursor-pointer"
+                >
+                  Yes, Replace Data
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Error Detail Modal from History */}
+        {selectedHistoryForErrors && (
+          <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="max-w-3xl w-full bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-rose-600" />
+                  <h3 className="text-sm font-black text-slate-900">
+                    Import Failure Logs ({selectedHistoryForErrors.constituencyName})
+                  </h3>
                 </div>
                 <button
-                  onClick={loadHistory}
-                  disabled={loadingHistory}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  onClick={() => setSelectedHistoryForErrors(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${loadingHistory ? 'animate-spin' : ''}`} /> Refresh
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {loadingHistory ? (
-                <div className="p-12 text-center text-slate-400 text-xs font-bold flex items-center justify-center gap-2">
-                  <RefreshCw className="w-4 h-4 animate-spin text-amber-500" /> Loading history logs...
-                </div>
-              ) : historyJobs.length === 0 ? (
-                <div className="p-12 bg-white rounded-2xl border border-slate-200 text-center text-slate-500 text-xs">
-                  No previous import jobs recorded for this application.
-                </div>
-              ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+              <div className="overflow-y-auto flex-1 border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold sticky top-0">
+                    <tr>
+                      <th className="py-2 px-3 w-16">Row</th>
+                      <th className="py-2 px-3">Field</th>
+                      <th className="py-2 px-3">Value</th>
+                      <th className="py-2 px-3">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {loadingErrors ? (
                       <tr>
-                        <th className="py-3 px-4">Job ID</th>
-                        <th className="py-3 px-4">Spreadsheet File</th>
-                        <th className="py-3 px-4">Status</th>
-                        <th className="py-3 px-4">Total Rows</th>
-                        <th className="py-3 px-4">Success</th>
-                        <th className="py-3 px-4">Errors</th>
-                        <th className="py-3 px-4">Created By</th>
-                        <th className="py-3 px-4">Date / Time</th>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          Loading error details...
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                      {historyJobs.map((j) => (
-                        <tr key={j.id} className="hover:bg-slate-50">
-                          <td className="py-3 px-4 font-mono text-[11px] font-bold text-slate-900">
-                            {j.id.slice(0, 8)}...
-                          </td>
-                          <td className="py-3 px-4 font-bold text-slate-800 flex items-center gap-2">
-                            <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
-                            {j.fileName}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                j.status === 'COMPLETED'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : j.status === 'FAILED'
-                                  ? 'bg-red-100 text-red-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {j.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-bold">{j.totalRows}</td>
-                          <td className="py-3 px-4 font-bold text-emerald-700">{j.successCount}</td>
-                          <td className="py-3 px-4 font-bold text-red-600">{j.errorCount}</td>
-                          <td className="py-3 px-4 text-slate-600">
-                            {j.createdBy?.name || j.createdBy?.mobileNumber || 'System Admin'}
-                          </td>
-                          <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
-                            {new Date(j.createdAt).toLocaleString('en-IN')}
-                          </td>
+                    ) : historyErrors.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          No specific row errors recorded.
+                        </td>
+                      </tr>
+                    ) : (
+                      historyErrors.map((err, i) => (
+                        <tr key={i} className="hover:bg-rose-50/20 text-[11px]">
+                          <td className="py-2 px-3 font-mono font-bold text-slate-500">#{err.rowNumber || err.row}</td>
+                          <td className="py-2 px-3 text-slate-700 font-semibold">{err.field || 'General'}</td>
+                          <td className="py-2 px-3 font-mono text-slate-500">{err.value || '—'}</td>
+                          <td className="py-2 px-3 text-rose-700 font-bold">{err.errorMessage || err.error}</td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => setSelectedHistoryForErrors(null)}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
