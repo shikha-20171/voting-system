@@ -39,6 +39,9 @@ export async function votersRoutes(fastify: FastifyInstance) {
     VotersController.bulkImport,
   );
 
+  // Template download
+  fastify.get('/template', VotersController.downloadTemplate);
+
   // Single voter details & history
   fastify.get('/:id', VotersController.getVoter);
   fastify.get('/:id/history', VotersController.getVoterHistory);

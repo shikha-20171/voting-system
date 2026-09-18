@@ -61,7 +61,7 @@ export default function SuperAdminDashboard({ session, onLogout }: SuperAdminDas
       const [orgsRes, auditRes, healthRes] = await Promise.all([
         apiFetch<any[]>('/api/organisations').catch(() => []),
         apiFetch<any[]>('/api/audit?limit=25').catch(() => []),
-        apiFetch<any>('/health').catch(() => ({ status: 'UP', database: 'healthy' })),
+        apiFetch<any>('/api/health').catch(() => ({ status: 'UP', database: 'healthy' })),
       ]);
       setOrgs(Array.isArray(orgsRes) ? orgsRes : []);
       setAuditLogs(Array.isArray(auditRes) ? auditRes : (auditRes as any)?.items || []);
@@ -102,12 +102,16 @@ export default function SuperAdminDashboard({ session, onLogout }: SuperAdminDas
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setIsCmsOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer active:scale-95"
-            id="btn-open-cms-studio"
+            onClick={() => (window.location.hash = '/assign-data')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer"
           >
-            <Sparkles className="w-4 h-4" />
-            Open Dynamic CMS Studio
+            Assign Data
+          </button>
+          <button
+            onClick={() => (window.location.hash = '/assign-incharges')}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+          >
+            Assign Incharges
           </button>
           
           <button
@@ -540,8 +544,16 @@ export default function SuperAdminDashboard({ session, onLogout }: SuperAdminDas
         </main>
       </div>
 
-      {/* Embedded CMS Studio Modal */}
-      <CmsStudio isOpen={isCmsOpen} onClose={() => setIsCmsOpen(false)} />
+      {isCmsOpen && (
+        <div className="fixed inset-0 z-50 overflow-auto bg-white">
+          <CmsStudio
+            isOpen={true}
+            mode="editor"
+            onClose={() => setIsCmsOpen(false)}
+            onOpenRoleModules={() => setIsCmsOpen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

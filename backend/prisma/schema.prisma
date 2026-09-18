@@ -202,6 +202,9 @@ model PoliticalParty {
   flagUrl         String?
   sortOrder       Int               @default(0)
   isActive        Boolean           @default(true)
+  lifecycleStatus String            @default("LOCKED") // DRAFT, PUBLISHED, LOCKED
+  isLocked        Boolean           @default(true)
+  publishedAt     DateTime?
   brandings       PartyBranding[]
   voterPreferences Voter[]          @relation("VoterPartyPreference")
   performances    PartyPerformance[]
@@ -210,6 +213,8 @@ model PoliticalParty {
 
   @@index([code])
   @@index([isActive])
+  @@index([isLocked])
+  @@index([lifecycleStatus])
   @@index([organisationId])
 }
 
@@ -425,6 +430,7 @@ model OrganizationUnit {
   importJobs      ImportJob[]
   aggregateCache  AggregateCache?
   sourceTasks     Task[]              @relation("TaskSourceUnit")
+  polls           Poll[]              @relation("UnitPolls")
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
@@ -495,6 +501,8 @@ model User {
   sessions            LoginSession[]
   otpVerifications    OTPVerification[]
   importJobs          ImportJob[]
+  createdPolls        Poll[]               @relation("PollCreator")
+  pollVotes           PollVote[]           @relation("UserPollVotes")
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -1210,8 +1218,23 @@ model CMSConfiguration {
   organisationName String
   stateName       String
   defaultLanguage String           @default("en")
+  headerTitle     String?
+  slogan          String?
+  logoUrl         String?          @db.Text
+  faviconUrl      String?
+  primaryColor    String?
+  secondaryColor  String?
+  accentColor     String?
+  activePartyCode String?
+  appScope        String?          @default("SINGLE_MLA")
+  parliamentName  String?
+  parliamentCode  String?
+  candidateName   String?
   hierarchyLabels Json
   featureToggles  Json
+  activeHierarchyLevels Json?
+  dashboardConfig Json?
+  analyticsConfig Json?
   aiEnabled       Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -1252,3 +1275,52 @@ model AggregateCache {
 
   @@index([expiresAt])
 }
+
+model Poll {
+  id              String             @id @default(uuid()) @db.Uuid
+  title           String
+  description     String?
+  targetLevel     OrgHierarchyLevel?
+  unitId          String?            @db.Uuid
+  unit            OrganizationUnit?  @relation("UnitPolls", fields: [unitId], references: [id], onDelete: SetNull)
+  status          String             @default("PUBLISHED") // DRAFT, PUBLISHED, CLOSED
+  expiresAt       DateTime?
+  createdById     String?            @db.Uuid
+  createdBy       User?              @relation("PollCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  options         PollOption[]
+  votes           PollVote[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([status])
+  @@index([targetLevel])
+  @@index([unitId])
+}
+
+model PollOption {
+  id              String             @id @default(uuid()) @db.Uuid
+  pollId          String             @db.Uuid
+  poll            Poll               @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  label           String
+  order           Int                @default(0)
+  votes           PollVote[]
+
+  @@index([pollId])
+}
+
+model PollVote {
+  id              String             @id @default(uuid()) @db.Uuid
+  pollId          String             @db.Uuid
+  poll            Poll               @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  optionId        String             @db.Uuid
+  option          PollOption         @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  userId          String             @db.Uuid
+  user            User               @relation("UserPollVotes", fields: [userId], references: [id], onDelete: Cascade)
+  votedAt         DateTime           @default(now())
+
+  @@unique([pollId, userId])
+  @@index([pollId])
+  @@index([optionId])
+  @@index([userId])
+}
+

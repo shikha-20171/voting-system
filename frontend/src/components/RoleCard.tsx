@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Crown, Layers, Home, Vote, Users, ShieldCheck, Building, Sparkles } from 'lucide-react';
+import { Crown, Layers, Home, Vote, Users, ShieldCheck, Building, Sparkles, Flag } from 'lucide-react';
 import { CommandRole } from '../types';
 
 // Simple mapping for Lucide icons
@@ -46,6 +46,24 @@ const cardThemes: Record<string, {
     subtitleColorClass: 'text-indigo-500',
     btnBgClass: 'bg-indigo-600 hover:bg-indigo-700 text-white',
   },
+  ZONE_INCHARGE: {
+    borderClass: 'border-teal-200',
+    hoverBorderClass: 'hover:border-teal-400',
+    bgClass: 'bg-teal-50/15',
+    iconBgClass: 'bg-teal-100/70',
+    iconColorClass: 'text-teal-600',
+    subtitleColorClass: 'text-teal-500',
+    btnBgClass: 'bg-teal-600 hover:bg-teal-700 text-white',
+  },
+  PARLIAMENT_INCHARGE: {
+    borderClass: 'border-fuchsia-200',
+    hoverBorderClass: 'hover:border-fuchsia-400',
+    bgClass: 'bg-fuchsia-50/15',
+    iconBgClass: 'bg-fuchsia-100/70',
+    iconColorClass: 'text-fuchsia-600',
+    subtitleColorClass: 'text-fuchsia-500',
+    btnBgClass: 'bg-fuchsia-600 hover:bg-fuchsia-700 text-white',
+  },
   CONSTITUENCY_INCHARGE: {
     borderClass: 'border-amber-200',
     hoverBorderClass: 'hover:border-amber-400',
@@ -61,7 +79,7 @@ const cardThemes: Record<string, {
     bgClass: 'bg-emerald-50/15',
     iconBgClass: 'bg-emerald-100/70',
     iconColorClass: 'text-emerald-600',
-    subtitleColorClass: 'text-emerald-500', // Matches "Mandal Level Management" green color in the image
+    subtitleColorClass: 'text-emerald-500',
     btnBgClass: 'bg-emerald-500 hover:bg-emerald-600 text-white',
   },
   VILLAGE_INCHARGE: {
@@ -95,59 +113,45 @@ const cardThemes: Record<string, {
 
 interface RoleCardProps {
   role: CommandRole;
+  index?: number;
   onClick: () => void;
   key?: React.Key;
 }
 
-export default function RoleCard({ role, onClick }: RoleCardProps) {
-  const IconComponent = iconMap[role.iconName] || ShieldCheck;
-  
-  // Retrieve the appropriate theme based on role ID, falling back to constituency defaults if not found
-  const theme = cardThemes[role.id] || cardThemes.CONSTITUENCY_INCHARGE;
+export default function RoleCard({ role, index, onClick }: RoleCardProps) {
+  const IconComponent = iconMap[role.iconName] || Flag;
 
   return (
     <div
       onClick={onClick}
       id={`role-card-${role.id}`}
-      className={`relative overflow-hidden bg-white border-2 ${theme.borderClass} ${theme.hoverBorderClass} ${theme.bgClass} rounded-2xl p-4 md:p-5 shadow-sm hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 cursor-pointer flex flex-col justify-between h-[255px] md:h-[265px] lg:h-[275px]`}
+      className="relative bg-white border border-slate-200/80 hover:border-slate-300 rounded-2xl p-5 shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between group h-[175px] md:h-[185px]"
     >
       <div>
-        {/* Card Header: Beautiful themed Icon Box & Active Pulse Badge */}
-        <div className="flex items-start justify-between mb-3 md:mb-4">
-          <div className={`p-2.5 ${theme.iconBgClass} rounded-xl ${theme.iconColorClass} transition-transform duration-300 hover:scale-105`}>
-            <IconComponent className="w-5.5 h-5.5 md:w-6 md:h-6 stroke-[2.5]" />
+        {/* Header: Soft Gray Rounded Icon Container & Green Active Dot */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600 group-hover:text-slate-900 group-hover:bg-slate-100 transition-colors">
+            <IconComponent className="w-5 h-5 stroke-[2]" />
           </div>
 
-          {/* Active Status Indicator */}
-          <div className="flex items-center gap-1 bg-emerald-50/80 border border-emerald-100 px-2 py-0.5 rounded-full">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span className="text-[9px] uppercase font-black text-emerald-600 tracking-wider">Active</span>
-          </div>
+          <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-4 ring-emerald-50" title="Module Active" />
         </div>
 
-        {/* Text Details */}
-        <div className="space-y-0.5">
-          <h3 className="font-extrabold text-base md:text-lg text-slate-900 tracking-tight leading-snug">
+        {/* Title & Subtitle */}
+        <div className="space-y-1">
+          <h3 className="font-bold text-base md:text-[17px] text-slate-900 tracking-tight group-hover:text-slate-950">
             {role.name}
           </h3>
-          
-          <p className={`text-[10px] md:text-xs font-black uppercase tracking-wide ${theme.subtitleColorClass}`}>
+          <p className="text-xs font-medium text-slate-400">
             {role.subtitle}
-          </p>
-
-          <p className="text-[11px] md:text-xs font-semibold text-slate-400 leading-normal mt-1.5 pt-0.5">
-            {role.description}
           </p>
         </div>
       </div>
 
-      {/* Full-width Access Portal Button inside card */}
-      <div className="mt-3 md:mt-4">
-        <button
-          className={`w-full py-2 rounded-xl font-black text-[11px] md:text-xs tracking-wide shadow-sm flex items-center justify-center gap-1 transition-all ${theme.btnBgClass}`}
-        >
-          Access Portal &rarr;
-        </button>
+      {/* Footer subtle hint */}
+      <div className="pt-2 flex items-center justify-between text-[11px] font-semibold text-slate-400 group-hover:text-slate-600 transition-colors">
+        <span>Click to access dashboard</span>
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity font-bold text-slate-800">&rarr;</span>
       </div>
     </div>
   );

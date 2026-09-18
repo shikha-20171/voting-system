@@ -4,14 +4,17 @@
  */
 
 import React from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { useCms } from '../context/CmsContext';
 
 export default function Footer() {
+  const { config } = useCms();
+  const orgName = config?.organisationName || 'Telangana Pradesh Congress Committee (TPCC)';
+
   return (
-    <footer className="w-full py-3 mt-auto select-none" id="app-footer">
-      <div className="w-full max-w-5xl mx-auto border-t border-gray-200 pt-3 text-center px-4">
-        <p className="text-[10px] text-gray-400 font-medium tracking-wide uppercase">
-          &copy; 2026 KONDAPI TDP CONNECT. AUTHORIZED ACCESS ONLY. SECURED BY TDP INFRASTRUCTURE.
+    <footer className="w-full py-6 mt-auto select-none" id="app-footer">
+      <div className="w-full max-w-5xl mx-auto text-center px-4">
+        <p className="text-xs font-normal text-slate-400">
+          &copy; 2024 Telangana Pradesh Congress Committee (TPCC). Authorized Access Only.
         </p>
       </div>
     </footer>

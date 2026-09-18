@@ -4,9 +4,17 @@ import { AuditAction, OrgHierarchyLevel, Prisma, RoleType, TaskPriority, TaskSta
 import { prisma } from '../../lib/prisma.js';
 import { successResponse } from '../../common/response.js';
 import { validateBody } from '../../common/validation.js';
-import { authenticate } from '../../middleware/auth.js';
+import { authenticate, optionalAuthenticate } from '../../middleware/auth.js';
 import { requireRoles } from '../../middleware/rbac.js';
 import { logAudit } from '../../middleware/audit.js';
+import {
+  DEFAULT_ANALYTICS_CONFIG,
+  DEFAULT_DASHBOARD_CONFIG,
+  isUuid,
+  loadCmsBundle,
+  persistCmsConfig,
+  serializeCmsConfig,
+} from './cms.service.js';
 
 // Schemas
 const organisationSchema = z.object({
@@ -33,6 +41,8 @@ const partySchema = z.object({
   flagUrl: z.string().optional(),
   sortOrder: z.number().default(0),
   isActive: z.boolean().default(true),
+  lifecycleStatus: z.enum(['DRAFT', 'PUBLISHED', 'LOCKED']).optional(),
+  isLocked: z.boolean().optional(),
 });
 
 const brandingSchema = z.object({
@@ -83,75 +93,428 @@ const announcementSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
+const buildApplicationSchema = z.object({
+  id: z.string().optional(),
+  appKey: z.string().optional(),
+  appName: z.string().min(2),
+  organisationName: z.string().min(2),
+  headerTitle: z.string().optional(),
+  slogan: z.string().optional(),
+  logoUrl: z.string().optional(),
+  faviconUrl: z.string().optional(),
+  stateName: z.string().min(2).default('Andhra Pradesh'),
+  primaryColor: z.string().default('#eab308'),
+  secondaryColor: z.string().default('#1e293b'),
+  accentColor: z.string().default('#3b82f6'),
+  activePartyCode: z.string().default('TDP'),
+  appScope: z.enum(['SINGLE_MLA', 'PARLIAMENT_MP', 'ZONE', 'STATE']).default('SINGLE_MLA'),
+  activeHierarchyLevels: z.array(z.string()).default(['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY']),
+  parliamentName: z.string().optional(),
+  parliamentCode: z.string().optional(),
+  constituencies: z.array(z.object({
+    id: z.string().optional(),
+    name: z.string().min(1),
+    code: z.string().optional(),
+    totalVoters: z.number().optional(),
+    votersCount: z.number().optional(),
+  })).default([]),
+  candidateName: z.string().optional(),
+  politicalParties: z.array(z.object({
+    name: z.string().min(1),
+    code: z.string().min(1),
+    shortName: z.string().optional(),
+    primaryColor: z.string().default('#eab308'),
+    secondaryColor: z.string().optional(),
+    accentColor: z.string().optional(),
+    symbolName: z.string().optional(),
+    logoUrl: z.string().optional(),
+    isActive: z.boolean().default(true),
+    sortOrder: z.number().optional(),
+  })).default([]),
+  hierarchyLabels: z.record(z.string(), z.string()).optional(),
+  featureToggles: z.record(z.string(), z.boolean()).optional(),
+});
+
 export async function cmsRoutes(fastify: FastifyInstance) {
   // --------------------------------------------------------------------------
   // PUBLIC / APP CONFIG ENDPOINT (Consumed dynamically by Frontend)
   // --------------------------------------------------------------------------
   fastify.get('/config', async (_req: FastifyRequest, reply: FastifyReply) => {
-    let config = await prisma.cMSConfiguration.findUnique({
-      where: { configKey: 'default' },
-      include: { organisation: true },
-    });
-
-    if (!config) {
-      config = await prisma.cMSConfiguration.create({
-        data: {
-          configKey: 'default',
-          organisationName: 'Kondapi TDP Connect',
-          stateName: 'Andhra Pradesh',
-          defaultLanguage: 'te',
-          hierarchyLabels: {
-            STATE: 'State',
-            ZONE: 'Zone',
-            PARLIAMENT: 'Parliament',
-            CONSTITUENCY: 'Constituency',
-            MANDAL: 'Mandal',
-            VILLAGE: 'Village',
-            BOOTH: 'Booth',
-            VOTER_GROUP: '100-Voter Incharge',
-          },
-          featureToggles: {
-            voterManagement: true,
-            fakeVoterFlagging: true,
-            migrationTracking: true,
-            liveVoteTracking: true,
-            casteAnalytics: true,
-            cadreNetwork: true,
-            training: true,
-            tasks: true,
-            groundReports: true,
-            aiStrategicIntelligence: true,
-            electionProjection: true,
-          },
-          aiEnabled: true,
-        },
-        include: { organisation: true },
-      });
-    }
-
-    const parties = await prisma.politicalParty.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-    });
-
-    const announcements = await prisma.announcement.findMany({
-      where: {
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gt: new Date() } },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    });
-
+    const bundle = await loadCmsBundle();
     return reply.send(
       successResponse({
-        config,
-        parties,
-        announcements,
+        config: bundle.config,
+        parties: bundle.parties,
+        announcements: bundle.announcements,
+        constituencies: bundle.constituencies,
       }),
     );
+  });
+
+  fastify.put(
+    '/config',
+    {
+      preHandler: [optionalAuthenticate],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = (req.body || {}) as Record<string, any>;
+      const saved = await persistCmsConfig({
+        organisationName: body.organisationName || body.appName,
+        headerTitle: body.headerTitle || body.organisationName || body.appName,
+        slogan: body.slogan,
+        logoUrl: body.logoUrl,
+        faviconUrl: body.faviconUrl,
+        stateName: body.stateName,
+        defaultLanguage: body.defaultLanguage,
+        primaryColor: body.primaryColor,
+        secondaryColor: body.secondaryColor,
+        accentColor: body.accentColor,
+        activePartyCode: body.activePartyCode,
+        appScope: body.appScope,
+        parliamentName: body.parliamentName,
+        parliamentCode: body.parliamentCode,
+        candidateName: body.candidateName,
+        hierarchyLabels: body.hierarchyLabels,
+        featureToggles: body.featureToggles,
+        activeHierarchyLevels: body.activeHierarchyLevels,
+        dashboardConfig: body.dashboardConfig,
+        analyticsConfig: body.analyticsConfig,
+        aiEnabled: body.aiEnabled,
+      });
+
+      if (body.activePartyCode && body.primaryColor) {
+        await prisma.politicalParty.updateMany({
+          where: { code: body.activePartyCode },
+          data: {
+            primaryColor: body.primaryColor,
+            secondaryColor: body.secondaryColor,
+            accentColor: body.accentColor,
+            logoUrl: body.logoUrl,
+          },
+        });
+      }
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'CMSConfiguration',
+        entityId: saved.id,
+        req,
+        changes: body as unknown as Prisma.InputJsonValue,
+      });
+
+      const parties = await prisma.politicalParty.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      });
+
+      return reply.send(successResponse(serializeCmsConfig(saved, { parties }), 'CMS configuration saved'));
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // DYNAMIC APPLICATION BUILDER & GENERATOR (CMS Phase 1)
+  // --------------------------------------------------------------------------
+  fastify.post(
+    '/build-application',
+    {
+      preValidation: [validateBody(buildApplicationSchema)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as z.infer<typeof buildApplicationSchema>;
+
+      // 1. Ensure Organisation exists or update it
+      let org = await prisma.organisation.findFirst();
+      if (!org) {
+        org = await prisma.organisation.create({
+          data: {
+            name: body.organisationName || body.appName,
+            code: (body.appName || 'APP').replace(/\s+/g, '-').toUpperCase().slice(0, 10),
+            logoUrl: body.logoUrl,
+            isActive: true,
+          },
+        });
+      } else {
+        org = await prisma.organisation.update({
+          where: { id: org.id },
+          data: {
+            name: body.organisationName || body.appName,
+            logoUrl: body.logoUrl || org.logoUrl,
+          },
+        });
+      }
+
+      // 2. Ensure State exists
+      let state = await prisma.state.findFirst({
+        where: { name: { equals: body.stateName, mode: 'insensitive' } },
+      });
+      if (!state) {
+        state = await prisma.state.create({
+          data: {
+            organisationId: org.id,
+            name: body.stateName || 'Andhra Pradesh',
+            code: (body.stateName || 'AP').slice(0, 4).toUpperCase(),
+            totalVoters: 40000000,
+          },
+        });
+        await prisma.organizationUnit.create({
+          data: {
+            name: state.name,
+            code: state.code,
+            level: OrgHierarchyLevel.STATE,
+          },
+        });
+      }
+
+      // 3. Ensure Zone exists
+      let zone = await prisma.zone.findFirst({
+        where: { stateId: state.id },
+      });
+      if (!zone) {
+        zone = await prisma.zone.create({
+          data: {
+            stateId: state.id,
+            name: `${state.name} Central Zone`,
+            code: `ZN-${state.code}-01`,
+            totalVoters: 10000000,
+          },
+        });
+        const stateUnit = await prisma.organizationUnit.findFirst({
+          where: { name: state.name, level: OrgHierarchyLevel.STATE },
+        });
+        await prisma.organizationUnit.create({
+          data: {
+            name: zone.name,
+            code: zone.code,
+            level: OrgHierarchyLevel.ZONE,
+            parentId: stateUnit?.id,
+          },
+        });
+      }
+
+      // 4. Ensure Parliament exists
+      const parName = body.parliamentName || (body.appScope === 'PARLIAMENT_MP' ? 'Ongole Parliament Constituency' : 'Central Parliament');
+      let parliament = await prisma.parliament.findFirst({
+        where: {
+          OR: [
+            { name: { equals: parName, mode: 'insensitive' } },
+            { zoneId: zone.id },
+          ],
+        },
+      });
+      if (!parliament) {
+        parliament = await prisma.parliament.create({
+          data: {
+            zoneId: zone.id,
+            name: parName,
+            code: body.parliamentCode || `PC-${parName.slice(0, 4).toUpperCase()}`,
+            totalVoters: 1500000,
+          },
+        });
+        const zoneUnit = await prisma.organizationUnit.findFirst({
+          where: { name: zone.name, level: OrgHierarchyLevel.ZONE },
+        });
+        await prisma.organizationUnit.create({
+          data: {
+            name: parliament.name,
+            code: parliament.code,
+            level: OrgHierarchyLevel.PARLIAMENT,
+            parentId: zoneUnit?.id,
+          },
+        });
+      } else if (body.parliamentName) {
+        parliament = await prisma.parliament.update({
+          where: { id: parliament.id },
+          data: { name: body.parliamentName },
+        });
+      }
+
+      const parUnit = await prisma.organizationUnit.findFirst({
+        where: { name: parliament.name, level: OrgHierarchyLevel.PARLIAMENT },
+      });
+
+      // 5. Create / Update all specified Assembly Constituencies
+      const createdConstituencies: any[] = [];
+      const incomingConstituencies = body.constituencies && body.constituencies.length > 0
+        ? body.constituencies
+        : [{ name: body.headerTitle || body.organisationName || 'Kondapi', code: 'AC-107', totalVoters: 228000 }];
+
+      for (let i = 0; i < incomingConstituencies.length; i++) {
+        const c = incomingConstituencies[i];
+        const cleanName = c.name.trim();
+        if (!cleanName) continue;
+
+        let constRecord = await prisma.constituency.findFirst({
+          where: {
+            OR: [
+              { name: { equals: cleanName, mode: 'insensitive' } },
+              ...(isUuid(c.id) ? [{ id: c.id as string }] : []),
+              ...(c.code ? [{ code: c.code }] : []),
+            ],
+          },
+        });
+
+        const code = c.code || `AC-${cleanName.slice(0, 4).toUpperCase()}-${i + 1}`;
+        const totalVoters = c.totalVoters || (c as any).votersCount || 220000;
+
+        if (!constRecord) {
+          constRecord = await prisma.constituency.create({
+            data: {
+              parliamentId: parliament.id,
+              name: cleanName,
+              code,
+              totalVoters,
+            },
+          });
+          await prisma.organizationUnit.create({
+            data: {
+              name: cleanName,
+              code,
+              level: OrgHierarchyLevel.CONSTITUENCY,
+              parentId: parUnit?.id,
+            },
+          });
+        } else {
+          constRecord = await prisma.constituency.update({
+            where: { id: constRecord.id },
+            data: {
+              name: cleanName,
+              code,
+              totalVoters: totalVoters || constRecord.totalVoters,
+              parliamentId: parliament.id,
+            },
+          });
+        }
+
+        createdConstituencies.push(constRecord);
+      }
+
+      // 6. Sync Political Parties
+      if (body.politicalParties && body.politicalParties.length > 0) {
+        for (let i = 0; i < body.politicalParties.length; i++) {
+          const p = body.politicalParties[i];
+          const partyCode = p.code.trim().toUpperCase();
+          if (!partyCode) continue;
+
+          await prisma.politicalParty.upsert({
+            where: { code: partyCode },
+            update: {
+              name: p.name,
+              shortName: p.shortName || partyCode,
+              primaryColor: p.primaryColor || '#eab308',
+              secondaryColor: p.secondaryColor || null,
+              accentColor: p.accentColor || null,
+              symbolName: p.symbolName || null,
+              logoUrl: p.logoUrl || null,
+              isActive: p.isActive !== false,
+              sortOrder: p.sortOrder !== undefined ? p.sortOrder : i,
+            },
+            create: {
+              organisationId: org.id,
+              name: p.name,
+              code: partyCode,
+              shortName: p.shortName || partyCode,
+              primaryColor: p.primaryColor || '#eab308',
+              secondaryColor: p.secondaryColor || null,
+              accentColor: p.accentColor || null,
+              symbolName: p.symbolName || null,
+              logoUrl: p.logoUrl || null,
+              isActive: p.isActive !== false,
+              sortOrder: p.sortOrder !== undefined ? p.sortOrder : i,
+            },
+          });
+        }
+      }
+
+      // 7. Store / Update CMSConfiguration
+      const mergedHierarchyLabels = {
+        STATE: 'State',
+        ZONE: 'Zone',
+        PARLIAMENT: 'Parliament',
+        CONSTITUENCY: 'Constituency',
+        MANDAL: 'Mandal',
+        VILLAGE: 'Village',
+        BOOTH: 'Booth',
+        VOTER_GROUP: '100-Voter Incharge',
+        ...(body.hierarchyLabels || {}),
+      };
+
+      const updatedConfig = await persistCmsConfig({
+        organisationId: org.id,
+        organisationName: body.organisationName || body.appName,
+        headerTitle: body.headerTitle || body.appName,
+        slogan: body.slogan,
+        logoUrl: body.logoUrl,
+        faviconUrl: body.faviconUrl,
+        stateName: body.stateName,
+        primaryColor: body.primaryColor,
+        secondaryColor: body.secondaryColor,
+        accentColor: body.accentColor,
+        activePartyCode: body.activePartyCode,
+        appScope: body.appScope,
+        parliamentName: parliament.name,
+        parliamentCode: parliament.code,
+        candidateName: (body as any).candidateName,
+        hierarchyLabels: mergedHierarchyLabels,
+        featureToggles: body.featureToggles,
+        activeHierarchyLevels: body.activeHierarchyLevels,
+      });
+
+      const allParties = await prisma.politicalParty.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      });
+
+      await logAudit({
+        action: AuditAction.CREATE,
+        entityType: 'ApplicationBuilder',
+        entityId: updatedConfig.id,
+        req,
+        changes: body as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.status(201).send(
+        successResponse({
+          application: {
+            appKey: body.appKey || `app_${Date.now()}`,
+            appName: body.appName,
+            organisationName: body.organisationName,
+            headerTitle: body.headerTitle || body.appName,
+            slogan: body.slogan,
+            logoUrl: body.logoUrl,
+            stateName: body.stateName,
+            primaryColor: body.primaryColor,
+            secondaryColor: body.secondaryColor,
+            accentColor: body.accentColor,
+            activePartyCode: body.activePartyCode,
+            appScope: body.appScope,
+            activeHierarchyLevels: body.activeHierarchyLevels,
+            parliamentName: parliament.name,
+            constituencies: createdConstituencies,
+            parties: allParties,
+          },
+          constituencies: createdConstituencies,
+          parties: allParties,
+        }, 'Application built and provisioned successfully! Ready for Data & Incharge Assignment.'),
+      );
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // LIST CONSTITUENCIES
+  // --------------------------------------------------------------------------
+  fastify.get('/constituencies', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const list = await prisma.constituency.findMany({
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        totalVoters: true,
+        parliament: { select: { id: true, name: true, code: true } },
+        _count: { select: { mandals: true, voters: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return reply.send(successResponse(list));
   });
 
   // --------------------------------------------------------------------------
@@ -173,16 +536,24 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as z.infer<typeof organisationSchema>;
       const existing = await prisma.organisation.findFirst({ orderBy: { createdAt: 'asc' } });
+      const orgData = {
+        name: body.name,
+        code: body.code,
+        description: body.description,
+        logoUrl: body.logoUrl,
+        website: body.website,
+        isActive: body.isActive,
+      };
 
       let org;
       if (existing) {
         org = await prisma.organisation.update({
           where: { id: existing.id },
-          data: body,
+          data: orgData,
         });
       } else {
         org = await prisma.organisation.create({
-          data: body,
+          data: orgData,
         });
       }
 
@@ -198,8 +569,7 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     },
   );
 
-  // --------------------------------------------------------------------------
-  // 2. POLITICAL PARTY MANAGEMENT
+  // 2. POLITICAL PARTY MANAGEMENT (ONE-TIME LIFECYCLE: DRAFT -> PUBLISHED -> LOCKED)
   // --------------------------------------------------------------------------
   fastify.get('/parties', async (_req: FastifyRequest, reply: FastifyReply) => {
     const parties = await prisma.politicalParty.findMany({
@@ -208,6 +578,7 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     return reply.send(successResponse(parties));
   });
 
+  // Create Party (Draft or Published/Locked)
   fastify.post(
     '/parties',
     {
@@ -216,8 +587,17 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as z.infer<typeof partySchema>;
+      const isDraft = body.lifecycleStatus === 'DRAFT';
+      const org = await prisma.organisation.findFirst();
+
       const party = await prisma.politicalParty.create({
-        data: body,
+        data: {
+          ...body,
+          organisationId: org?.id,
+          lifecycleStatus: isDraft ? 'DRAFT' : 'LOCKED',
+          isLocked: !isDraft,
+          publishedAt: isDraft ? null : new Date(),
+        },
       });
 
       await logAudit({
@@ -225,13 +605,62 @@ export async function cmsRoutes(fastify: FastifyInstance) {
         entityType: 'PoliticalParty',
         entityId: party.id,
         req,
-        changes: body as unknown as Prisma.InputJsonValue,
+        changes: {
+          ...body,
+          lifecycleStatus: party.lifecycleStatus,
+          isLocked: party.isLocked,
+        } as unknown as Prisma.InputJsonValue,
       });
 
-      return reply.status(201).send(successResponse(party, 'Party added successfully'));
+      return reply.status(201).send(successResponse(party, isDraft ? 'Party created in DRAFT state' : 'Party created, published and locked (immutable)'));
     },
   );
 
+  // Publish & Lock Party (Transitions DRAFT -> PUBLISHED -> LOCKED)
+  fastify.post(
+    '/parties/:id/publish',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { id: string };
+      const party = await prisma.politicalParty.findUnique({
+        where: { id: params.id },
+      });
+
+      if (!party) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Party not found' },
+        });
+      }
+
+      if (party.isLocked || party.lifecycleStatus === 'LOCKED') {
+        return reply.status(200).send(successResponse(party, 'Party is already published and locked (immutable)'));
+      }
+
+      const lockedParty = await prisma.politicalParty.update({
+        where: { id: params.id },
+        data: {
+          lifecycleStatus: 'LOCKED',
+          isLocked: true,
+          publishedAt: new Date(),
+        },
+      });
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'PoliticalParty',
+        entityId: lockedParty.id,
+        req,
+        changes: { lifecycleStatus: 'LOCKED', isLocked: true, publishedAt: lockedParty.publishedAt } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(successResponse(lockedParty, 'Party published and locked successfully. Party is now immutable.'));
+    },
+  );
+
+  // Patch / Edit Party (Forbidden if LOCKED)
   fastify.patch(
     '/parties/:id',
     {
@@ -241,6 +670,40 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const params = req.params as { id: string };
       const body = req.body as Partial<z.infer<typeof partySchema>>;
+
+      const existingParty = await prisma.politicalParty.findUnique({
+        where: { id: params.id },
+      });
+
+      if (!existingParty) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Party not found' },
+        });
+      }
+
+      // STRICT IMMUTABILITY CHECK
+      if (existingParty.isLocked || existingParty.lifecycleStatus === 'LOCKED') {
+        await logAudit({
+          action: AuditAction.UPDATE,
+          entityType: 'PoliticalParty',
+          entityId: existingParty.id,
+          req,
+          changes: {
+            attemptedChanges: body,
+            status: 'BLOCKED',
+            reason: 'Party is published and immutable (LOCKED)',
+          } as unknown as Prisma.InputJsonValue,
+        });
+
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'PARTY_CONFIGURATION_LOCKED',
+            message: 'Party configuration is published, locked and immutable. No modifications are permitted.',
+          },
+        });
+      }
 
       const party = await prisma.politicalParty.update({
         where: { id: params.id },
@@ -255,10 +718,73 @@ export async function cmsRoutes(fastify: FastifyInstance) {
         changes: body as unknown as Prisma.InputJsonValue,
       });
 
-      return reply.send(successResponse(party, 'Party updated successfully'));
+      return reply.send(successResponse(party, 'Draft party updated successfully'));
     },
   );
 
+  // Put / Replace Party (Forbidden if LOCKED)
+  fastify.put(
+    '/parties/:id',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN)],
+      preValidation: [validateBody(partySchema)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { id: string };
+      const body = req.body as z.infer<typeof partySchema>;
+
+      const existingParty = await prisma.politicalParty.findUnique({
+        where: { id: params.id },
+      });
+
+      if (!existingParty) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Party not found' },
+        });
+      }
+
+      // STRICT IMMUTABILITY CHECK
+      if (existingParty.isLocked || existingParty.lifecycleStatus === 'LOCKED') {
+        await logAudit({
+          action: AuditAction.UPDATE,
+          entityType: 'PoliticalParty',
+          entityId: existingParty.id,
+          req,
+          changes: {
+            attemptedChanges: body,
+            status: 'BLOCKED',
+            reason: 'Party is published and immutable (LOCKED)',
+          } as unknown as Prisma.InputJsonValue,
+        });
+
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'PARTY_CONFIGURATION_LOCKED',
+            message: 'Party configuration is published, locked and immutable. No modifications are permitted.',
+          },
+        });
+      }
+
+      const party = await prisma.politicalParty.update({
+        where: { id: params.id },
+        data: body,
+      });
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'PoliticalParty',
+        entityId: party.id,
+        req,
+        changes: body as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(successResponse(party, 'Draft party replaced successfully'));
+    },
+  );
+
+  // Delete Party (Forbidden if LOCKED or referenced)
   fastify.delete(
     '/parties/:id',
     {
@@ -267,20 +793,75 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const params = req.params as { id: string };
 
-      // Soft delete by deactivating
-      const party = await prisma.politicalParty.update({
+      const existingParty = await prisma.politicalParty.findUnique({
         where: { id: params.id },
-        data: { isActive: false },
+        include: {
+          _count: {
+            select: {
+              voterPreferences: true,
+              brandings: true,
+              performances: true,
+            },
+          },
+        },
+      });
+
+      if (!existingParty) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Party not found' },
+        });
+      }
+
+      // STRICT IMMUTABILITY CHECK
+      if (existingParty.isLocked || existingParty.lifecycleStatus === 'LOCKED') {
+        await logAudit({
+          action: AuditAction.DELETE,
+          entityType: 'PoliticalParty',
+          entityId: existingParty.id,
+          req,
+          changes: {
+            status: 'BLOCKED',
+            reason: 'Party is published and immutable (LOCKED)',
+          } as unknown as Prisma.InputJsonValue,
+        });
+
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'PARTY_CONFIGURATION_LOCKED',
+            message: 'Party configuration is published, locked and immutable. Deletion is forbidden.',
+          },
+        });
+      }
+
+      // DEPENDENCY CHECK
+      if (
+        existingParty._count.voterPreferences > 0 ||
+        existingParty._count.brandings > 0 ||
+        existingParty._count.performances > 0
+      ) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'PARTY_IN_USE',
+            message: `Cannot delete party with active references (${existingParty._count.voterPreferences} voters, ${existingParty._count.brandings} brandings).`,
+          },
+        });
+      }
+
+      await prisma.politicalParty.delete({
+        where: { id: params.id },
       });
 
       await logAudit({
         action: AuditAction.DELETE,
         entityType: 'PoliticalParty',
-        entityId: party.id,
+        entityId: existingParty.id,
         req,
       });
 
-      return reply.send(successResponse(party, 'Party deactivated'));
+      return reply.send(successResponse({ id: params.id }, 'Draft party deleted'));
     },
   );
 
@@ -288,26 +869,8 @@ export async function cmsRoutes(fastify: FastifyInstance) {
   // 3. BRANDING & THEME CONFIGURATION
   // --------------------------------------------------------------------------
   fastify.get('/branding', async (_req: FastifyRequest, reply: FastifyReply) => {
-    const config = await prisma.cMSConfiguration.findUnique({
-      where: { configKey: 'default' },
-    });
-    const defaultParty = await prisma.politicalParty.findFirst({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-    });
-
-    return reply.send(
-      successResponse({
-        appName: config?.organisationName || 'Kondapi TDP Connect',
-        headerTitle: config?.organisationName || 'Kondapi TDP Connect',
-        stateName: config?.stateName || 'Andhra Pradesh',
-        primaryColor: defaultParty?.primaryColor || '#eab308',
-        secondaryColor: defaultParty?.secondaryColor || '#1e293b',
-        accentColor: defaultParty?.accentColor || '#3b82f6',
-        activePartyCode: defaultParty?.code || 'TDP',
-        logoUrl: defaultParty?.logoUrl || '',
-      }),
-    );
+    const bundle = await loadCmsBundle();
+    return reply.send(successResponse(bundle.config));
   });
 
   fastify.put(
@@ -319,18 +882,16 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as z.infer<typeof brandingSchema>;
 
-      const config = await prisma.cMSConfiguration.upsert({
-        where: { configKey: 'default' },
-        update: {
-          organisationName: body.appName,
-        },
-        create: {
-          configKey: 'default',
-          organisationName: body.appName,
-          stateName: 'Andhra Pradesh',
-          hierarchyLabels: {},
-          featureToggles: {},
-        },
+      const config = await persistCmsConfig({
+        organisationName: body.appName,
+        headerTitle: body.headerTitle,
+        slogan: body.slogan,
+        logoUrl: body.logoUrl,
+        faviconUrl: body.faviconUrl,
+        primaryColor: body.primaryColor,
+        secondaryColor: body.secondaryColor,
+        accentColor: body.accentColor,
+        activePartyCode: body.activePartyCode,
       });
 
       // Also update primary party color if specified
@@ -501,19 +1062,7 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as Record<string, boolean>;
 
-      const config = await prisma.cMSConfiguration.upsert({
-        where: { configKey: 'default' },
-        update: {
-          featureToggles: body as Prisma.InputJsonValue,
-        },
-        create: {
-          configKey: 'default',
-          organisationName: 'Kondapi TDP Connect',
-          stateName: 'Andhra Pradesh',
-          hierarchyLabels: {},
-          featureToggles: body as Prisma.InputJsonValue,
-        },
-      });
+      const config = await persistCmsConfig({ featureToggles: body });
 
       await logAudit({
         action: AuditAction.UPDATE,
@@ -531,51 +1080,10 @@ export async function cmsRoutes(fastify: FastifyInstance) {
   // 6. DASHBOARD CONFIGURATION (Per-role Card & Section Visibility)
   // --------------------------------------------------------------------------
   fastify.get('/dashboard-config', async (_req: FastifyRequest, reply: FastifyReply) => {
-    const defaultDashboardConfig = {
-      CONSTITUENCY_INCHARGE: {
-        showPulseBar: true,
-        showMetricsGrid: true,
-        showVoterDirectory: true,
-        showLiveVotingHub: true,
-        showWarRoomProjections: true,
-        showCadreOperations: true,
-        showGroundIntelligence: true,
-        showAIStrategicCenter: true,
-      },
-      MANDAL_INCHARGE: {
-        showPulseBar: true,
-        showMetricsGrid: true,
-        showVoterDirectory: true,
-        showLiveVotingHub: true,
-        showVillageBreakdown: true,
-        showCadreOperations: true,
-        showGroundIntelligence: true,
-      },
-      VILLAGE_INCHARGE: {
-        showPulseBar: true,
-        showMetricsGrid: true,
-        showVoterDirectory: true,
-        showLiveVotingHub: true,
-        showBoothList: true,
-        showCadreOperations: true,
-      },
-      BOOTH_PRESIDENT: {
-        showPulseBar: true,
-        showMetricsGrid: true,
-        showVoterDirectory: true,
-        showLiveVotingHub: true,
-        showInchargeClusters: true,
-      },
-      VOTER_100_INCHARGE: {
-        showPulseBar: true,
-        showMetricsGrid: true,
-        showVoterChecklist: true,
-        showLiveTurnoutLogger: true,
-        showSurveyForm: true,
-      },
-    };
-
-    return reply.send(successResponse(defaultDashboardConfig));
+    const config = await prisma.cMSConfiguration.findUnique({
+      where: { configKey: 'default' },
+    });
+    return reply.send(successResponse(config?.dashboardConfig || DEFAULT_DASHBOARD_CONFIG));
   });
 
   fastify.put(
@@ -587,10 +1095,12 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as Record<string, any>;
 
+      const saved = await persistCmsConfig({ dashboardConfig: body });
+
       await logAudit({
         action: AuditAction.UPDATE,
         entityType: 'DashboardConfig',
-        entityId: 'global',
+        entityId: saved.id,
         req,
         changes: body as unknown as Prisma.InputJsonValue,
       });
@@ -726,16 +1236,10 @@ export async function cmsRoutes(fastify: FastifyInstance) {
   // 10. POLITICAL ANALYTICS CONFIGURATION
   // --------------------------------------------------------------------------
   fastify.get('/analytics-config', async (_req: FastifyRequest, reply: FastifyReply) => {
-    const config = {
-      electionYear: 2024,
-      targetSeats: 175,
-      majorityMark: 88,
-      leadParty: 'TDP',
-      challengerParty: 'YSRCP',
-      projectionConfidence: 0.92,
-      trackedParties: ['TDP', 'YSRCP', 'JSP', 'BJP', 'INC', 'NEUTRAL', 'OTH'],
-    };
-    return reply.send(successResponse(config));
+    const config = await prisma.cMSConfiguration.findUnique({
+      where: { configKey: 'default' },
+    });
+    return reply.send(successResponse(config?.analyticsConfig || DEFAULT_ANALYTICS_CONFIG));
   });
 
   fastify.put(
@@ -747,10 +1251,12 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as z.infer<typeof analyticsConfigSchema>;
 
+      const saved = await persistCmsConfig({ analyticsConfig: body });
+
       await logAudit({
         action: AuditAction.UPDATE,
         entityType: 'AnalyticsConfig',
-        entityId: 'global',
+        entityId: saved.id,
         req,
         changes: body as unknown as Prisma.InputJsonValue,
       });
@@ -884,7 +1390,7 @@ export async function cmsRoutes(fastify: FastifyInstance) {
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as {
-        unitLevel: 'CONSTITUENCY' | 'MANDAL' | 'VILLAGE' | 'BOOTH' | 'VOTER_GROUP';
+        unitLevel: 'STATE' | 'ZONE' | 'PARLIAMENT' | 'CONSTITUENCY' | 'MANDAL' | 'VILLAGE' | 'BOOTH' | 'VOTER_GROUP';
         unitId: string;
         role: RoleType;
         userName: string;
@@ -925,7 +1431,6 @@ export async function cmsRoutes(fastify: FastifyInstance) {
             mobileNumber: cleanMobile,
             role: body.role || RoleType.VOTER_100_INCHARGE,
             accountStatus: 'ACTIVE',
-            unitId: body.unitId,
           },
         });
       } else {
@@ -935,7 +1440,6 @@ export async function cmsRoutes(fastify: FastifyInstance) {
             name: body.userName,
             role: body.role || user.role,
             accountStatus: 'ACTIVE',
-            unitId: body.unitId,
           },
         });
       }
@@ -947,7 +1451,10 @@ export async function cmsRoutes(fastify: FastifyInstance) {
         isActive: true,
       };
 
-      if (body.unitLevel === 'CONSTITUENCY') assignmentData.constituencyId = body.unitId;
+      if (body.unitLevel === 'STATE') assignmentData.stateId = body.unitId;
+      else if (body.unitLevel === 'ZONE') assignmentData.zoneId = body.unitId;
+      else if (body.unitLevel === 'PARLIAMENT') assignmentData.parliamentId = body.unitId;
+      else if (body.unitLevel === 'CONSTITUENCY') assignmentData.constituencyId = body.unitId;
       else if (body.unitLevel === 'MANDAL') assignmentData.mandalId = body.unitId;
       else if (body.unitLevel === 'VILLAGE') assignmentData.villageId = body.unitId;
       else if (body.unitLevel === 'BOOTH') assignmentData.boothId = body.unitId;
@@ -966,6 +1473,9 @@ export async function cmsRoutes(fastify: FastifyInstance) {
       const existingAssignment = await prisma.userHierarchyAssignment.findFirst({
         where: {
           userId: user.id,
+          ...(assignmentData.stateId ? { stateId: assignmentData.stateId } : {}),
+          ...(assignmentData.zoneId ? { zoneId: assignmentData.zoneId } : {}),
+          ...(assignmentData.parliamentId ? { parliamentId: assignmentData.parliamentId } : {}),
           ...(assignmentData.constituencyId ? { constituencyId: assignmentData.constituencyId } : {}),
           ...(assignmentData.mandalId ? { mandalId: assignmentData.mandalId } : {}),
           ...(assignmentData.villageId ? { villageId: assignmentData.villageId } : {}),
@@ -1025,4 +1535,1128 @@ export async function cmsRoutes(fastify: FastifyInstance) {
       );
     },
   );
+
+  // --------------------------------------------------------------------------
+  // INCHARGE BULK EXCEL IMPORT & VALIDATION (PHASE 3)
+  // --------------------------------------------------------------------------
+  fastify.post(
+    '/incharges/bulk-import',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        applicationId?: string;
+        constituencyId?: string;
+        level: 'STATE' | 'ZONE' | 'PARLIAMENT' | 'CONSTITUENCY' | 'MANDAL' | 'VILLAGE' | 'BOOTH' | 'VOTER_GROUP';
+        rows: any[];
+        validateOnly?: boolean;
+      };
+
+      const level = body.level || 'CONSTITUENCY';
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      const validateOnly = Boolean(body.validateOnly);
+
+      if (rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'EMPTY_PAYLOAD', message: 'No incharge records provided for import.' },
+        });
+      }
+
+      // 1. Resolve Target Constituency & Geography context
+      let targetConstituency = null;
+      if (body.constituencyId) {
+        targetConstituency = await prisma.constituency.findFirst({
+          where: {
+            OR: [
+              { id: body.constituencyId },
+              { name: { contains: body.constituencyId.replace(/\s*\(AC.*?\)\s*/gi, '').trim(), mode: 'insensitive' } },
+              { code: { equals: body.constituencyId.trim(), mode: 'insensitive' } },
+            ],
+          },
+          include: {
+            mandals: {
+              include: {
+                villages: {
+                  include: {
+                    booths: {
+                      include: {
+                        voterGroups: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      if (!targetConstituency) {
+        targetConstituency = await prisma.constituency.findFirst({
+          include: {
+            mandals: {
+              include: {
+                villages: {
+                  include: {
+                    booths: {
+                      include: {
+                        voterGroups: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+
+      // Collect geography lookups
+      const allMandals = targetConstituency?.mandals || [];
+      const allVillages = allMandals.flatMap((m) => m.villages);
+      const allBooths = allVillages.flatMap((v) => v.booths);
+      const allVoterGroups = allBooths.flatMap((b) => b.voterGroups);
+
+      const errors: { rowNumber: number; name?: string; mobile?: string; field: string; message: string; suggestion?: string }[] = [];
+      const seenMobilesInFile = new Set<string>();
+      let duplicateMobileCount = 0;
+      let validRowCount = 0;
+      const validProcessedRows: any[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNum = i + 1;
+        const name = String(row.name || row.inchargeName || row.fullName || row['Incharge Name'] || '').trim();
+        const rawMobile = String(row.mobileNumber || row.mobile || row.phone || row['Mobile Number'] || '').replace(/\D/g, '');
+        const cleanMobile = rawMobile.slice(-10);
+        const designation = String(row.designation || row['Designation'] || `${level} Incharge`).trim();
+
+        if (!name) {
+          errors.push({
+            rowNumber: rowNum,
+            field: 'name',
+            message: 'Incharge full name is missing',
+            suggestion: 'Provide valid citizen/worker name',
+          });
+        }
+
+        if (!cleanMobile || cleanMobile.length !== 10) {
+          errors.push({
+            rowNumber: rowNum,
+            name,
+            field: 'mobileNumber',
+            message: `Invalid mobile number: "${rawMobile || 'empty'}" (must be 10 digits)`,
+            suggestion: 'Ensure 10 digit Indian mobile number',
+          });
+        } else if (seenMobilesInFile.has(cleanMobile)) {
+          duplicateMobileCount++;
+          errors.push({
+            rowNumber: rowNum,
+            name,
+            mobile: cleanMobile,
+            field: 'mobileNumber',
+            message: `Duplicate mobile number ${cleanMobile} found in same upload`,
+            suggestion: 'Each incharge requires a unique mobile number',
+          });
+        } else {
+          seenMobilesInFile.add(cleanMobile);
+        }
+
+        // Unit resolution based on level
+        let resolvedUnitId: string | null = null;
+        let resolvedUnitName = `${level} Unit`;
+
+        if (level === 'CONSTITUENCY') {
+          resolvedUnitId = targetConstituency?.id || 'constituency-default';
+          resolvedUnitName = targetConstituency?.name || 'Assembly Constituency';
+        } else if (level === 'MANDAL') {
+          const mandalName = String(row.mandalName || row.mandal || row['Mandal Name'] || '').trim().toLowerCase();
+          const match = allMandals.find((m) => m.name.toLowerCase().includes(mandalName) || mandalName.includes(m.name.toLowerCase()));
+          if (match) {
+            resolvedUnitId = match.id;
+            resolvedUnitName = match.name;
+          } else if (allMandals.length > 0) {
+            resolvedUnitId = allMandals[i % allMandals.length].id;
+            resolvedUnitName = allMandals[i % allMandals.length].name;
+          }
+        } else if (level === 'VILLAGE') {
+          const villageName = String(row.villageName || row.village || row['Village Name'] || '').trim().toLowerCase();
+          const match = allVillages.find((v) => v.name.toLowerCase().includes(villageName) || villageName.includes(v.name.toLowerCase()));
+          if (match) {
+            resolvedUnitId = match.id;
+            resolvedUnitName = match.name;
+          } else if (allVillages.length > 0) {
+            resolvedUnitId = allVillages[i % allVillages.length].id;
+            resolvedUnitName = allVillages[i % allVillages.length].name;
+          }
+        } else if (level === 'BOOTH') {
+          const boothNum = String(row.boothNumber || row.booth || row['Booth / Part No'] || row['Booth Number'] || '').replace(/\D/g, '');
+          const match = allBooths.find((b) => b.boothNumber === boothNum || b.name.includes(boothNum));
+          if (match) {
+            resolvedUnitId = match.id;
+            resolvedUnitName = `Booth ${match.boothNumber} - ${match.name}`;
+          } else if (allBooths.length > 0) {
+            resolvedUnitId = allBooths[i % allBooths.length].id;
+            resolvedUnitName = `Booth ${allBooths[i % allBooths.length].boothNumber} - ${allBooths[i % allBooths.length].name}`;
+          }
+        } else if (level === 'VOTER_GROUP') {
+          const code = String(row.inchargeCode || row.groupCode || row['Incharge Code'] || '').trim();
+          const match = allVoterGroups.find((g) => g.code === code || g.name.includes(code));
+          if (match) {
+            resolvedUnitId = match.id;
+            resolvedUnitName = match.name;
+          } else if (allVoterGroups.length > 0) {
+            resolvedUnitId = allVoterGroups[i % allVoterGroups.length].id;
+            resolvedUnitName = allVoterGroups[i % allVoterGroups.length].name;
+          }
+        } else {
+          resolvedUnitId = targetConstituency?.id || 'state-apex-unit';
+          resolvedUnitName = `${level} Apex Unit`;
+        }
+
+        const isRowValid = name.length > 0 && cleanMobile.length === 10 && !errors.some((e) => e.rowNumber === rowNum);
+
+        if (isRowValid) {
+          validRowCount++;
+          validProcessedRows.push({
+            rowNumber: rowNum,
+            name,
+            mobile: cleanMobile,
+            designation,
+            unitLevel: level,
+            unitId: resolvedUnitId,
+            unitName: resolvedUnitName,
+            role:
+              level === 'VOTER_GROUP'
+                ? RoleType.VOTER_100_INCHARGE
+                : level === 'BOOTH'
+                ? RoleType.BOOTH_PRESIDENT
+                : level === 'VILLAGE'
+                ? RoleType.VILLAGE_INCHARGE
+                : level === 'MANDAL'
+                ? RoleType.MANDAL_INCHARGE
+                : RoleType.CONSTITUENCY_INCHARGE,
+          });
+        }
+      }
+
+      if (validateOnly) {
+        return reply.send(
+          successResponse({
+            isValid: errors.length === 0,
+            totalRows: rows.length,
+            validRows: validRowCount,
+            invalidRows: rows.length - validRowCount,
+            duplicateRows: duplicateMobileCount,
+            errors,
+            previewRows: validProcessedRows.slice(0, 10),
+          }),
+        );
+      }
+
+      // Execute Real Database Persistence
+      let org = await prisma.organisation.findFirst();
+      if (!org) {
+        org = await prisma.organisation.create({
+          data: { name: 'Telugu Desam Party', code: 'TDP-ORG' },
+        });
+      }
+
+      const assignedUsers: any[] = [];
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const row of validProcessedRows) {
+        // Find or create User
+        let user = await prisma.user.findFirst({
+          where: {
+            OR: [
+              { mobileNumber: row.mobile },
+              { mobileNumber: `+91${row.mobile}` },
+            ],
+          },
+        });
+
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              organisationId: org.id,
+              userCode: `INC-${row.unitLevel.slice(0, 3)}-${row.mobile.slice(-4)}-${Date.now().toString().slice(-4)}`,
+              name: row.name,
+              mobileNumber: row.mobile,
+              role: row.role,
+              accountStatus: 'ACTIVE',
+            },
+          });
+          createdCount++;
+        } else {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              name: row.name,
+              role: row.role,
+              accountStatus: 'ACTIVE',
+            },
+          });
+          updatedCount++;
+        }
+
+        // Upsert UserHierarchyAssignment
+        const assignmentData: Prisma.UserHierarchyAssignmentUncheckedCreateInput = {
+          userId: user.id,
+          roleType: row.role,
+          isActive: true,
+        };
+
+        if (row.unitLevel === 'CONSTITUENCY') assignmentData.constituencyId = row.unitId;
+        else if (row.unitLevel === 'MANDAL') assignmentData.mandalId = row.unitId;
+        else if (row.unitLevel === 'VILLAGE') assignmentData.villageId = row.unitId;
+        else if (row.unitLevel === 'BOOTH') assignmentData.boothId = row.unitId;
+        else if (row.unitLevel === 'VOTER_GROUP') {
+          assignmentData.voterGroupId = row.unitId;
+          await prisma.voterGroup.updateMany({
+            where: { id: row.unitId },
+            data: { assignedInchargeId: user.id },
+          });
+          await prisma.voter.updateMany({
+            where: { voterGroupId: row.unitId },
+            data: { assignedInchargeId: user.id },
+          });
+        }
+
+        const existingAssignment = await prisma.userHierarchyAssignment.findFirst({
+          where: {
+            userId: user.id,
+            isActive: true,
+          },
+        });
+
+        if (existingAssignment) {
+          await prisma.userHierarchyAssignment.update({
+            where: { id: existingAssignment.id },
+            data: assignmentData,
+          });
+        } else {
+          await prisma.userHierarchyAssignment.create({
+            data: assignmentData,
+          });
+        }
+
+        // Upsert Cadre
+        const existingCadre = await prisma.cadre.findFirst({
+          where: { userId: user.id },
+        });
+
+        if (!existingCadre) {
+          await prisma.cadre.create({
+            data: {
+              userId: user.id,
+              performanceScore: 90.0,
+              totalAssignedVoters: row.unitLevel === 'VOTER_GROUP' ? 100 : 500,
+            },
+          });
+        }
+
+        assignedUsers.push({
+          id: user.id,
+          name: user.name,
+          mobile: user.mobileNumber,
+          role: user.role,
+          level: row.unitLevel,
+          unitName: row.unitName,
+          code: user.userCode,
+          accountStatus: user.accountStatus,
+        });
+      }
+
+      await logAudit({
+        action: AuditAction.CREATE,
+        entityType: 'InchargeBulkImport',
+        entityId: targetConstituency?.id || 'global-incharges',
+        req,
+        changes: {
+          level,
+          totalRows: rows.length,
+          validRows: validRowCount,
+          createdCount,
+          updatedCount,
+        } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.status(200).send(
+        successResponse({
+          totalRows: rows.length,
+          validRows: validRowCount,
+          invalidRows: rows.length - validRowCount,
+          duplicateRows: duplicateMobileCount,
+          createdUsersCount: createdCount,
+          updatedAssignmentsCount: updatedCount,
+          errors,
+          assignedUsers,
+        }, `Successfully processed ${validRowCount} incharge assignments for ${level} level. WhatsApp OTP accounts provisioned!`),
+      );
+    },
+  );
+
+  // Incharge Dynamic Template Generator
+  fastify.get('/incharges/template', async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = req.query as { level?: string };
+    const level = (query.level || 'CONSTITUENCY').toUpperCase();
+
+    let columns: string[] = [];
+    let sampleRows: Record<string, string>[] = [];
+
+    if (level === 'VOTER_GROUP') {
+      columns = ['Incharge Code', 'From Voter No', 'To Voter No', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Incharge Code': 'BT1-001', 'From Voter No': '1', 'To Voter No': '100', 'Incharge Name': 'M. Srinivas', 'Mobile Number': '9848010005', 'Designation': '100-Voter Cluster Incharge' },
+        { 'Incharge Code': 'BT1-002', 'From Voter No': '101', 'To Voter No': '200', 'Incharge Name': 'K. Narayana', 'Mobile Number': '9848010006', 'Designation': '100-Voter Cluster Incharge' },
+      ];
+    } else if (level === 'BOOTH') {
+      columns = ['Booth / Part No', 'Booth Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Booth / Part No': 'Booth 101', 'Booth Name': 'ZPHS High School', 'Incharge Name': 'T. Subrahmanyam', 'Mobile Number': '9848010004', 'Designation': 'Booth President' },
+        { 'Booth / Part No': 'Booth 102', 'Booth Name': 'MPP Primary School', 'Incharge Name': 'V. Ramana', 'Mobile Number': '9848010007', 'Designation': 'Booth President' },
+      ];
+    } else if (level === 'VILLAGE') {
+      columns = ['Village Name', 'Mandal Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Village Name': 'Ananthavaram Village', 'Mandal Name': 'Kondapi Mandal', 'Incharge Name': 'P. Ramanjaneyulu', 'Mobile Number': '9848010003', 'Designation': 'Village Incharge' },
+        { 'Village Name': 'Kondapi Village', 'Mandal Name': 'Kondapi Mandal', 'Incharge Name': 'L. Venkatesh', 'Mobile Number': '9848010008', 'Designation': 'Village Incharge' },
+      ];
+    } else if (level === 'MANDAL') {
+      columns = ['Mandal Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Mandal Name': 'Kondapi Mandal', 'Incharge Name': 'K. Venkateswarlu', 'Mobile Number': '9848010002', 'Designation': 'Mandal President' },
+        { 'Mandal Name': 'Marripudi Mandal', 'Incharge Name': 'S. Prasad', 'Mobile Number': '9848010009', 'Designation': 'Mandal President' },
+      ];
+    } else if (level === 'PARLIAMENT') {
+      columns = ['Parliament Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Parliament Name': 'Ongole Parliament', 'Incharge Name': 'Magunta Sreenivasulu Reddy', 'Mobile Number': '9848010000', 'Designation': 'Parliamentary Incharge' },
+      ];
+    } else if (level === 'ZONE') {
+      columns = ['Zone Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Zone Name': 'Coastal Andhra Zone', 'Incharge Name': 'Zonal Coordinator A', 'Mobile Number': '9848010012', 'Designation': 'Zonal Coordinator' },
+      ];
+    } else if (level === 'STATE') {
+      columns = ['State Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'State Name': 'Andhra Pradesh', 'Incharge Name': 'State Apex Lead', 'Mobile Number': '9848010014', 'Designation': 'State Apex Observer' },
+      ];
+    } else {
+      columns = ['Constituency Name', 'Incharge Name', 'Mobile Number', 'Designation'];
+      sampleRows = [
+        { 'Constituency Name': 'Kondapi AC', 'Incharge Name': 'Dr. Dola Sree Bala Veeranjaneya Swamy', 'Mobile Number': '9848010001', 'Designation': 'MLA Candidate' },
+        { 'Constituency Name': 'Ongole AC', 'Incharge Name': 'Damacharla Janardhan Rao', 'Mobile Number': '9848010010', 'Designation': 'MLA Candidate' },
+      ];
+    }
+
+    return reply.send(successResponse({ level, columns, sampleRows }));
+  });
+
+  // Incharge Deactivate Route
+  fastify.post(
+    '/incharges/deactivate',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as { userId: string; reason?: string };
+      if (!body.userId) {
+        return reply.status(400).send({ error: { message: 'userId is required' } });
+      }
+
+      const user = await prisma.user.update({
+        where: { id: body.userId },
+        data: { accountStatus: 'SUSPENDED' },
+      });
+
+      await prisma.userHierarchyAssignment.updateMany({
+        where: { userId: body.userId },
+        data: { isActive: false },
+      });
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'InchargeDeactivation',
+        entityId: body.userId,
+        req,
+        changes: { status: 'DEACTIVATED', reason: body.reason || 'Deactivated by administrator' } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(successResponse({ userId: user.id, accountStatus: user.accountStatus }, 'Incharge deactivated successfully.'));
+    },
+  );
+
+  // Incharge User Search for Existing User Assignment
+  fastify.get(
+    '/incharges/users/search',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const query = req.query as { q?: string };
+      const q = (query.q || '').trim();
+
+      const users = await prisma.user.findMany({
+        where: q
+          ? {
+              OR: [
+                { name: { contains: q, mode: 'insensitive' } },
+                { mobileNumber: { contains: q } },
+                { userCode: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : undefined,
+        select: {
+          id: true,
+          name: true,
+          mobileNumber: true,
+          role: true,
+          userCode: true,
+          accountStatus: true,
+        },
+        take: 20,
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      return reply.send(successResponse(users));
+    },
+  );
+
+  // Incharge Transfer Route (Move User from Jurisdiction A to Jurisdiction B)
+  fastify.post(
+    '/incharges/transfer',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        userId: string;
+        fromUnitLevel?: string;
+        fromUnitId?: string;
+        toUnitLevel: 'STATE' | 'ZONE' | 'PARLIAMENT' | 'CONSTITUENCY' | 'MANDAL' | 'VILLAGE' | 'BOOTH' | 'VOTER_GROUP';
+        toUnitId: string;
+        reason?: string;
+      };
+
+      if (!body.userId || !body.toUnitId || !body.toUnitLevel) {
+        return reply.status(400).send({ error: { message: 'userId, toUnitId, and toUnitLevel are required' } });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: body.userId },
+      });
+
+      if (!user) {
+        return reply.status(404).send({ error: { code: 'NOT_FOUND', message: 'User not found' } });
+      }
+
+      // Deactivate previous active assignment
+      await prisma.userHierarchyAssignment.updateMany({
+        where: { userId: body.userId, isActive: true },
+        data: { isActive: false },
+      });
+
+      // Create new assignment
+      const newAssignmentData: Prisma.UserHierarchyAssignmentUncheckedCreateInput = {
+        userId: user.id,
+        roleType: user.role,
+        isActive: true,
+      };
+
+      if (body.toUnitLevel === 'STATE') newAssignmentData.stateId = body.toUnitId;
+      else if (body.toUnitLevel === 'ZONE') newAssignmentData.zoneId = body.toUnitId;
+      else if (body.toUnitLevel === 'PARLIAMENT') newAssignmentData.parliamentId = body.toUnitId;
+      else if (body.toUnitLevel === 'CONSTITUENCY') newAssignmentData.constituencyId = body.toUnitId;
+      else if (body.toUnitLevel === 'MANDAL') newAssignmentData.mandalId = body.toUnitId;
+      else if (body.toUnitLevel === 'VILLAGE') newAssignmentData.villageId = body.toUnitId;
+      else if (body.toUnitLevel === 'BOOTH') newAssignmentData.boothId = body.toUnitId;
+      else if (body.toUnitLevel === 'VOTER_GROUP') {
+        newAssignmentData.voterGroupId = body.toUnitId;
+        await prisma.voterGroup.updateMany({
+          where: { id: body.toUnitId },
+          data: { assignedInchargeId: user.id },
+        });
+        await prisma.voter.updateMany({
+          where: { voterGroupId: body.toUnitId },
+          data: { assignedInchargeId: user.id },
+        });
+      }
+
+      const createdAssignment = await prisma.userHierarchyAssignment.create({
+        data: newAssignmentData,
+      });
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'InchargeTransfer',
+        entityId: user.id,
+        req,
+        changes: {
+          fromUnitLevel: body.fromUnitLevel,
+          fromUnitId: body.fromUnitId,
+          toUnitLevel: body.toUnitLevel,
+          toUnitId: body.toUnitId,
+          reason: body.reason || 'Cadre redeployment by administration',
+        } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(
+        successResponse({
+          user: { id: user.id, name: user.name, mobileNumber: user.mobileNumber },
+          assignment: createdAssignment,
+        }, `Incharge ${user.name} successfully transferred to ${body.toUnitLevel}`),
+      );
+    },
+  );
+
+  // Incharge Replacement Route (Replace User A with User B at Jurisdiction)
+  fastify.post(
+    '/incharges/replace',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        currentUserId?: string;
+        unitLevel: 'STATE' | 'ZONE' | 'PARLIAMENT' | 'CONSTITUENCY' | 'MANDAL' | 'VILLAGE' | 'BOOTH' | 'VOTER_GROUP';
+        unitId: string;
+        newUserName: string;
+        newMobileNumber: string;
+        newUserId?: string;
+        reason?: string;
+      };
+
+      if (!body.unitId || !body.unitLevel || !body.newUserName || !body.newMobileNumber) {
+        return reply.status(400).send({ error: { message: 'unitId, unitLevel, newUserName, and newMobileNumber are required' } });
+      }
+
+      const cleanMobile = body.newMobileNumber.replace(/\D/g, '').slice(-10);
+
+      // 1. Deactivate old user's assignment if provided
+      if (body.currentUserId) {
+        await prisma.userHierarchyAssignment.updateMany({
+          where: { userId: body.currentUserId, isActive: true },
+          data: { isActive: false },
+        });
+      }
+
+      // 2. Find or create replacement user
+      let org = await prisma.organisation.findFirst();
+      let newUser = body.newUserId
+        ? await prisma.user.findUnique({ where: { id: body.newUserId } })
+        : await prisma.user.findFirst({
+            where: {
+              OR: [{ mobileNumber: cleanMobile }, { mobileNumber: `+91${cleanMobile}` }],
+            },
+          });
+
+      const roleType =
+        body.unitLevel === 'VOTER_GROUP'
+          ? RoleType.VOTER_100_INCHARGE
+          : body.unitLevel === 'BOOTH'
+          ? RoleType.BOOTH_PRESIDENT
+          : body.unitLevel === 'VILLAGE'
+          ? RoleType.VILLAGE_INCHARGE
+          : body.unitLevel === 'MANDAL'
+          ? RoleType.MANDAL_INCHARGE
+          : RoleType.CONSTITUENCY_INCHARGE;
+
+      if (!newUser) {
+        newUser = await prisma.user.create({
+          data: {
+            organisationId: org?.id,
+            userCode: `INC-${body.unitLevel.slice(0, 3)}-${cleanMobile.slice(-4)}-${Date.now().toString().slice(-4)}`,
+            name: body.newUserName,
+            mobileNumber: cleanMobile,
+            role: roleType,
+            accountStatus: 'ACTIVE',
+          },
+        });
+      } else {
+        newUser = await prisma.user.update({
+          where: { id: newUser.id },
+          data: {
+            name: body.newUserName,
+            role: roleType,
+            accountStatus: 'ACTIVE',
+          },
+        });
+      }
+
+      // 3. Create new assignment for replacement user
+      const assignmentData: Prisma.UserHierarchyAssignmentUncheckedCreateInput = {
+        userId: newUser.id,
+        roleType,
+        isActive: true,
+      };
+
+      if (body.unitLevel === 'STATE') assignmentData.stateId = body.unitId;
+      else if (body.unitLevel === 'ZONE') assignmentData.zoneId = body.unitId;
+      else if (body.unitLevel === 'PARLIAMENT') assignmentData.parliamentId = body.unitId;
+      else if (body.unitLevel === 'CONSTITUENCY') assignmentData.constituencyId = body.unitId;
+      else if (body.unitLevel === 'MANDAL') assignmentData.mandalId = body.unitId;
+      else if (body.unitLevel === 'VILLAGE') assignmentData.villageId = body.unitId;
+      else if (body.unitLevel === 'BOOTH') assignmentData.boothId = body.unitId;
+      else if (body.unitLevel === 'VOTER_GROUP') {
+        assignmentData.voterGroupId = body.unitId;
+        await prisma.voterGroup.updateMany({
+          where: { id: body.unitId },
+          data: { assignedInchargeId: newUser.id },
+        });
+        await prisma.voter.updateMany({
+          where: { voterGroupId: body.unitId },
+          data: { assignedInchargeId: newUser.id },
+        });
+      }
+
+      const createdAssignment = await prisma.userHierarchyAssignment.create({
+        data: assignmentData,
+      });
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'InchargeReplacement',
+        entityId: newUser.id,
+        req,
+        changes: {
+          replacedUserId: body.currentUserId,
+          replacementUserId: newUser.id,
+          unitLevel: body.unitLevel,
+          unitId: body.unitId,
+          reason: body.reason || 'Cadre replaced by leadership',
+        } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(
+        successResponse({
+          newUser: { id: newUser.id, name: newUser.name, mobileNumber: newUser.mobileNumber, role: newUser.role },
+          assignment: createdAssignment,
+        }, `Incharge successfully replaced with ${newUser.name}`),
+      );
+    },
+  );
+
+  // Incharge Assignment History
+  fastify.get(
+    '/incharges/history',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN, RoleType.CONSTITUENCY_INCHARGE)],
+    },
+    async (_req: FastifyRequest, reply: FastifyReply) => {
+      const logs = await prisma.auditLog.findMany({
+        where: {
+          entityType: {
+            in: ['InchargeAssignment', 'InchargeBulkImport', 'InchargeDeactivation', 'InchargeTransfer', 'InchargeReplacement'],
+          },
+        },
+        include: {
+          user: {
+            select: { id: true, name: true, role: true, mobileNumber: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+
+      return reply.send(successResponse(logs));
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // 12. MULTI-APPLICATION CONFIGURATIONS LIST & SWITCH
+  // --------------------------------------------------------------------------
+  fastify.get('/applications', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const configs = await prisma.cMSConfiguration.findMany({
+      include: { organisation: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const activeParties = await prisma.politicalParty.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const constituenciesCount = await prisma.constituency.count();
+    const votersCount = await prisma.voter.count();
+
+    const formatted = configs.map((c) => ({
+      id: c.id,
+      configKey: c.configKey,
+      appName: c.organisationName,
+      stateName: c.stateName,
+      defaultLanguage: c.defaultLanguage,
+      hierarchyLabels: c.hierarchyLabels,
+      featureToggles: c.featureToggles,
+      aiEnabled: c.aiEnabled,
+      isDefault: c.configKey === 'default',
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      constituenciesCount,
+      votersCount,
+      partiesCount: activeParties.length,
+      parties: activeParties.map((p) => ({
+        name: p.name,
+        code: p.code,
+        primaryColor: p.primaryColor,
+        isLocked: p.isLocked,
+        lifecycleStatus: p.lifecycleStatus,
+      })),
+    }));
+
+    return reply.send(successResponse(formatted));
+  });
+
+  fastify.post(
+    '/applications/switch/:configKey',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { configKey } = req.params as { configKey: string };
+      const targetConfig = await prisma.cMSConfiguration.findUnique({
+        where: { configKey },
+      });
+
+      if (!targetConfig) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: `Application configuration '${configKey}' not found` },
+        });
+      }
+
+      await logAudit({
+        action: AuditAction.UPDATE,
+        entityType: 'ApplicationSwitch',
+        entityId: targetConfig.id,
+        req,
+        changes: { switchedTo: configKey, appName: targetConfig.organisationName } as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.send(successResponse(targetConfig, `Successfully switched active application to ${targetConfig.organisationName}`));
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // 13. CONFIGURATION VERSION HISTORY & SNAPSHOTS
+  // --------------------------------------------------------------------------
+  fastify.get('/versions', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        entityType: {
+          in: ['ApplicationBuilder', 'Branding', 'Organisation', 'PoliticalParty', 'FeatureToggles', 'HierarchyNode', 'InchargeAssignment'],
+        },
+      },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const versions = logs.map((log, index) => ({
+      versionNumber: `v1.${logs.length - index}.0`,
+      id: log.id,
+      action: log.action,
+      entityType: log.entityType,
+      entityId: log.entityId,
+      author: log.user?.name || 'System Super Admin',
+      timestamp: log.createdAt,
+      changeSummary: `${log.action} performed on ${log.entityType}`,
+      payload: log.changes,
+    }));
+
+    return reply.send(successResponse(versions));
+  });
+
+  fastify.post(
+    '/versions',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as { versionName: string; changeSummary: string };
+
+      const currentConfig = await prisma.cMSConfiguration.findUnique({
+        where: { configKey: 'default' },
+      });
+
+      const audit = await prisma.auditLog.create({
+        data: {
+          action: AuditAction.CREATE,
+          entityType: 'ApplicationVersionSnapshot',
+          entityId: currentConfig?.id || 'default',
+          userId: req.user?.userId || (await prisma.user.findFirst())?.id || '00000000-0000-0000-0000-000000000000',
+          changes: {
+            versionName: body.versionName || `v1.${Date.now()}`,
+            summary: body.changeSummary || 'Manual configuration checkpoint',
+            snapshot: currentConfig,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      return reply.status(201).send(successResponse(audit, 'Configuration checkpoint snapshot saved successfully'));
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // 14. ROLES & PERMISSIONS MATRIX CONFIGURATION
+  // --------------------------------------------------------------------------
+  fastify.get('/roles-permissions', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const rolePermissionsMatrix = [
+      {
+        role: 'SUPER_ADMIN',
+        displayName: 'Super Administrator',
+        scope: 'GLOBAL',
+        description: 'Full platform root privileges, CMS management, project provisioning and configuration lock',
+        permissions: { read: true, create: true, update: true, delete: true, export: true },
+        modules: ['ALL'],
+      },
+      {
+        role: 'HIGH_COMMAND',
+        displayName: 'High Command / State President',
+        scope: 'STATE',
+        description: 'Statewide command & control, political intelligence, cadre directives and strategic dashboards',
+        permissions: { read: true, create: true, update: true, delete: false, export: true },
+        modules: ['DASHBOARD', 'VOTERS', 'INCHARGES', 'CADRE', 'TASKS', 'POLLS', 'TRAINING', 'REPORTS', 'AI_INTELLIGENCE', 'AUDIT_LOGS'],
+      },
+      {
+        role: 'STATE_ADMIN',
+        displayName: 'State Administrator',
+        scope: 'STATE',
+        description: 'State operations, voter data administration, cadre coordination and broadcast management',
+        permissions: { read: true, create: true, update: true, delete: false, export: true },
+        modules: ['DASHBOARD', 'VOTERS', 'INCHARGES', 'CADRE', 'TASKS', 'POLLS', 'TRAINING', 'REPORTS', 'AI_INTELLIGENCE'],
+      },
+      {
+        role: 'PARLIAMENT_INCHARGE',
+        displayName: 'Parliament Incharge / MP Candidate',
+        scope: 'PARLIAMENT',
+        description: 'Parliamentary constituency jurisdiction, assembly segment oversight and MP-level metrics',
+        permissions: { read: true, create: true, update: true, delete: false, export: true },
+        modules: ['DASHBOARD', 'VOTERS', 'INCHARGES', 'CADRE', 'TASKS', 'REPORTS', 'AI_INTELLIGENCE'],
+      },
+      {
+        role: 'CONSTITUENCY_INCHARGE',
+        displayName: 'Constituency Incharge / MLA Candidate',
+        scope: 'CONSTITUENCY',
+        description: 'Assembly Constituency command, Mandal president monitoring, ground voter operations',
+        permissions: { read: true, create: true, update: true, delete: false, export: true },
+        modules: ['DASHBOARD', 'VOTERS', 'INCHARGES', 'GROUPS_100', 'CADRE', 'TASKS', 'POLLS', 'TRAINING', 'REPORTS'],
+      },
+      {
+        role: 'MANDAL_INCHARGE',
+        displayName: 'Mandal President',
+        scope: 'MANDAL',
+        description: 'Mandal level jurisdiction, Village incharge tracking, local event coordination',
+        permissions: { read: true, create: true, update: true, delete: false, export: true },
+        modules: ['DASHBOARD', 'VOTERS', 'INCHARGES', 'GROUPS_100', 'TASKS', 'TRAINING', 'REPORTS'],
+      },
+      {
+        role: 'VILLAGE_INCHARGE',
+        displayName: 'Village / Ward Incharge',
+        scope: 'VILLAGE',
+        description: 'Village ward jurisdiction, Booth president guidance, doorstep voter outreach',
+        permissions: { read: true, create: true, update: true, delete: false, export: false },
+        modules: ['DASHBOARD', 'VOTERS', 'GROUPS_100', 'TASKS', 'TRAINING'],
+      },
+      {
+        role: 'BOOTH_PRESIDENT',
+        displayName: 'Booth President',
+        scope: 'BOOTH',
+        description: 'Polling booth jurisdiction, 100-voter incharge supervision, turnout tracking',
+        permissions: { read: true, create: true, update: true, delete: false, export: false },
+        modules: ['DASHBOARD', 'VOTERS', 'GROUPS_100', 'TASKS', 'TRAINING'],
+      },
+      {
+        role: 'VOTER_100_INCHARGE',
+        displayName: '100-Voter Incharge (Ground Worker)',
+        scope: 'VOTER_GROUP',
+        description: 'Assigned 100 voter cluster, door-to-door verification, sentiment survey and polling day mobilization',
+        permissions: { read: true, create: true, update: true, delete: false, export: false },
+        modules: ['DASHBOARD', 'VOTERS', 'TASKS'],
+      },
+    ];
+
+    return reply.send(successResponse(rolePermissionsMatrix));
+  });
+
+  // --------------------------------------------------------------------------
+  // 15. GEOGRAPHY ENTITIES LIST & CREATE
+  // --------------------------------------------------------------------------
+  fastify.get('/geography', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const states = await prisma.state.findMany({
+      include: {
+        zones: {
+          include: {
+            parliaments: {
+              include: {
+                constituencies: {
+                  include: {
+                    mandals: {
+                      include: {
+                        _count: { select: { villages: true, voters: true } },
+                      },
+                    },
+                    _count: { select: { mandals: true, voters: true } },
+                  },
+                },
+                _count: { select: { constituencies: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return reply.send(successResponse(states));
+  });
+
+  fastify.post(
+    '/geography/unit',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN)],
+    },
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const body = req.body as {
+        level: 'STATE' | 'ZONE' | 'PARLIAMENT' | 'CONSTITUENCY' | 'MANDAL';
+        name: string;
+        code?: string;
+        parentId?: string;
+        totalVoters?: number;
+      };
+
+      if (!body.name) {
+        return reply.status(400).send({ error: { message: 'Entity name is required' } });
+      }
+
+      let created: any;
+      const cleanName = body.name.trim();
+      const code = body.code?.trim() || `${body.level.slice(0, 3)}-${cleanName.slice(0, 4).toUpperCase()}`;
+
+      if (body.level === 'CONSTITUENCY') {
+        const parliamentId = body.parentId || (await prisma.parliament.findFirst())?.id;
+        if (!parliamentId) throw new Error('No parent Parliament found to attach Constituency');
+        created = await prisma.constituency.create({
+          data: {
+            name: cleanName,
+            code,
+            parliamentId,
+            totalVoters: body.totalVoters || 220000,
+          },
+        });
+      } else if (body.level === 'MANDAL') {
+        const constituencyId = body.parentId || (await prisma.constituency.findFirst())?.id;
+        if (!constituencyId) throw new Error('No parent Constituency found to attach Mandal');
+        created = await prisma.mandal.create({
+          data: {
+            name: cleanName,
+            code,
+            constituencyId,
+            totalVoters: body.totalVoters || 35000,
+          },
+        });
+      } else if (body.level === 'PARLIAMENT') {
+        const zoneId = body.parentId || (await prisma.zone.findFirst())?.id;
+        if (!zoneId) throw new Error('No parent Zone found to attach Parliament');
+        created = await prisma.parliament.create({
+          data: {
+            name: cleanName,
+            code,
+            zoneId,
+            totalVoters: body.totalVoters || 1500000,
+          },
+        });
+      } else if (body.level === 'ZONE') {
+        const stateId = body.parentId || (await prisma.state.findFirst())?.id;
+        if (!stateId) throw new Error('No parent State found to attach Zone');
+        created = await prisma.zone.create({
+          data: {
+            name: cleanName,
+            code,
+            stateId,
+            totalVoters: body.totalVoters || 10000000,
+          },
+        });
+      } else if (body.level === 'STATE') {
+        const org = await prisma.organisation.findFirst();
+        created = await prisma.state.create({
+          data: {
+            name: cleanName,
+            code,
+            organisationId: org?.id,
+            totalVoters: body.totalVoters || 40000000,
+          },
+        });
+      } else {
+        return reply.status(400).send({ error: { message: `Unsupported geography level: ${body.level}` } });
+      }
+
+      await logAudit({
+        action: AuditAction.CREATE,
+        entityType: `Geography_${body.level}`,
+        entityId: created.id,
+        req,
+        changes: body as unknown as Prisma.InputJsonValue,
+      });
+
+      return reply.status(201).send(successResponse(created, `${body.level} '${cleanName}' created successfully`));
+    },
+  );
+
+  // --------------------------------------------------------------------------
+  // 16. EXCEL COLUMN MAPPING VALIDATOR
+  // --------------------------------------------------------------------------
+  fastify.post('/validate-excel-mapping', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as {
+      columnMapping: Record<string, string>;
+      sampleRows: any[];
+    };
+
+    const mapping = body.columnMapping || {};
+    const rows = body.sampleRows || [];
+
+    const requiredFields = ['epicNumber', 'name', 'gender', 'age'];
+    const missingFields: string[] = [];
+
+    for (const field of requiredFields) {
+      if (!Object.values(mapping).includes(field)) {
+        missingFields.push(field);
+      }
+    }
+
+    const validationErrors: string[] = [];
+    const validRowsPreview: any[] = [];
+
+    rows.slice(0, 10).forEach((row, idx) => {
+      const mappedRecord: Record<string, any> = {};
+      Object.entries(mapping).forEach(([excelCol, targetField]) => {
+        if (targetField && targetField !== 'ignore') {
+          mappedRecord[targetField] = row[excelCol];
+        }
+      });
+
+      if (!mappedRecord.epicNumber) {
+        validationErrors.push(`Row ${idx + 1}: Missing EPIC / Voter ID number`);
+      }
+      if (!mappedRecord.name) {
+        validationErrors.push(`Row ${idx + 1}: Missing voter full name`);
+      }
+
+      validRowsPreview.push(mappedRecord);
+    });
+
+    return reply.send(
+      successResponse({
+        isValid: missingFields.length === 0 && validationErrors.length === 0,
+        missingRequiredFields: missingFields,
+        validationErrors,
+        sampleMappedPreview: validRowsPreview,
+        totalSampleRowsTested: rows.length,
+      }),
+    );
+  });
 }

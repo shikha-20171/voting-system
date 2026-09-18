@@ -20,6 +20,8 @@ import { notificationsRoutes } from './modules/notifications/notifications.route
 import { aiRoutes } from './modules/ai/ai.routes.js';
 import { cmsRoutes } from './modules/cms/cms.routes.js';
 import { auditRoutes } from './modules/audit/audit.routes.js';
+import { pollsRoutes } from './modules/polls/polls.routes.js';
+import { applicationsRoutes } from './modules/applications/applications.routes.js';
 
 export function buildApp(): FastifyInstance {
   const app = fastify({
@@ -27,6 +29,7 @@ export function buildApp(): FastifyInstance {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
     trustProxy: true,
+    bodyLimit: 10 * 1024 * 1024,
   });
 
   // Centralized Error Handler
@@ -89,9 +92,11 @@ export function buildApp(): FastifyInstance {
   app.register(analyticsRoutes, { prefix: '/api/analytics' });
   app.register(reportsRoutes, { prefix: '/api/reports' });
   app.register(notificationsRoutes, { prefix: '/api/notifications' });
+  app.register(pollsRoutes, { prefix: '/api/polls' });
   app.register(aiRoutes, { prefix: '/api/ai' });
   app.register(cmsRoutes, { prefix: '/api/cms' });
   app.register(auditRoutes, { prefix: '/api/audit' });
+  app.register(applicationsRoutes, { prefix: '/api/applications' });
 
   return app;
 }

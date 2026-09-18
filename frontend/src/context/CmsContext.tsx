@@ -5,6 +5,7 @@ import {
   buildPartyThemes,
   CmsConfig,
   CmsParty,
+  ConstituencyItem,
   DEFAULT_CONFIG,
   DEFAULT_PARTY_THEMES,
   fetchCmsConfig,
@@ -12,6 +13,10 @@ import {
   PartyPreset,
   PartyTheme,
   saveCmsConfig,
+  buildApplicationApi,
+  fetchConstituenciesApi,
+  APPLICATION_TEMPLATES,
+  ApplicationTemplate,
 } from '../lib/cms';
 
 interface CmsContextValue {
@@ -20,11 +25,16 @@ interface CmsContextValue {
   activeParty: CmsParty | null;
   partyThemes: Record<VoterPreference, PartyTheme>;
   announcements: any[];
+  constituencies: ConstituencyItem[];
   isReady: boolean;
   applyPreset: (presetId: string) => Promise<void>;
+  applyTemplate: (templateId: string) => Promise<void>;
+  buildApplication: (payload: any) => Promise<any>;
   updateConfig: (next: Partial<CmsConfig>) => Promise<void>;
+  updateParties: (nextParties: CmsParty[]) => void;
   updateFeatureToggles: (toggles: Partial<CmsConfig['featureToggles']>) => Promise<void>;
   updateHierarchyLabels: (labels: Record<string, string>) => Promise<void>;
+  reloadConfig: () => Promise<void>;
   t: (hierarchyLevel: string, fallback?: string) => string;
   isFeatureEnabled: (feature: keyof CmsConfig['featureToggles']) => boolean;
 }
@@ -35,11 +45,16 @@ const CmsContext = createContext<CmsContextValue>({
   activeParty: null,
   partyThemes: DEFAULT_PARTY_THEMES,
   announcements: [],
+  constituencies: DEFAULT_CONFIG.constituencies,
   isReady: false,
   applyPreset: async () => {},
+  applyTemplate: async () => {},
+  buildApplication: async () => {},
   updateConfig: async () => {},
+  updateParties: () => {},
   updateFeatureToggles: async () => {},
   updateHierarchyLabels: async () => {},
+  reloadConfig: async () => {},
   t: (k, fb) => fb || k,
   isFeatureEnabled: () => true,
 });
@@ -49,7 +64,15 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem('kdp_cms_config');
     if (saved) {
       try {
-        return JSON.parse(saved) as CmsConfig;
+        const parsed = JSON.parse(saved) as CmsConfig;
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          activeHierarchyLevels: parsed.activeHierarchyLevels || DEFAULT_CONFIG.activeHierarchyLevels,
+          featureToggles: { ...DEFAULT_CONFIG.featureToggles, ...(parsed.featureToggles || {}) },
+          hierarchyLabels: { ...DEFAULT_CONFIG.hierarchyLabels, ...(parsed.hierarchyLabels || {}) },
+          constituencies: parsed.constituencies?.length ? parsed.constituencies : DEFAULT_CONFIG.constituencies,
+        };
       } catch {
         // ignore
       }
@@ -59,35 +82,43 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
 
   const [parties, setParties] = useState<CmsParty[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [constituencies, setConstituencies] = useState<ConstituencyItem[]>(config.constituencies || DEFAULT_CONFIG.constituencies);
   const [isReady, setIsReady] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  const loadData = async () => {
+    try {
+      const data = await fetchCmsConfig();
+      const constList = await fetchConstituenciesApi();
 
-    fetchCmsConfig()
-      .then((data) => {
-        if (!active) return;
-        setConfig((prev) => ({
-          ...data.config,
-          ...prev, // preserve user session preview tweaks if any
-        }));
-        setParties(data.parties);
-        setAnnouncements(data.announcements);
-        setIsReady(true);
-      })
-      .catch(() => {
-        if (active) setIsReady(true);
+      setConfig({
+        ...DEFAULT_CONFIG,
+        ...(data?.config || {}),
+        constituencies: constList.length > 0 ? constList : (data?.config?.constituencies || DEFAULT_CONFIG.constituencies),
       });
 
-    return () => {
-      active = false;
-    };
+      setParties(Array.isArray(data?.parties) && data.parties.length > 0 ? data.parties : []);
+      if (Array.isArray(data?.parties) && data.parties.length > 0) {
+        localStorage.setItem('kdp_custom_parties', JSON.stringify(data.parties));
+      }
+
+      setAnnouncements(Array.isArray(data?.announcements) ? data.announcements : []);
+      if (constList.length > 0) {
+        setConstituencies(constList);
+      }
+      setIsReady(true);
+    } catch {
+      setIsReady(true);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
 
   // Update document title, favicon, and CSS variables when config changes
   useEffect(() => {
     if (typeof document !== 'undefined') {
-      document.title = config.organisationName || 'Kondapi Political Connect';
+      document.title = config.organisationName || 'Political Connect Platform';
       applyThemeVariables(config.primaryColor, config.secondaryColor, config.accentColor);
       localStorage.setItem('kdp_cms_config', JSON.stringify(config));
     }
@@ -121,6 +152,82 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     await saveCmsConfig(nextConfig);
   };
 
+  const applyTemplate = async (templateId: string) => {
+    const tpl = APPLICATION_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) return;
+
+    const payload = {
+      appName: tpl.name,
+      organisationName: tpl.name,
+      headerTitle: tpl.name,
+      slogan: tpl.slogan,
+      logoUrl: tpl.logoUrl,
+      stateName: tpl.stateName,
+      primaryColor: tpl.primaryColor,
+      secondaryColor: tpl.secondaryColor,
+      accentColor: tpl.accentColor,
+      activePartyCode: tpl.activePartyCode,
+      appScope: tpl.scope,
+      activeHierarchyLevels: tpl.hierarchyLevels,
+      parliamentName: tpl.parliamentName,
+      constituencies: tpl.constituencies,
+      politicalParties: tpl.parties,
+    };
+
+    await buildApplication(payload);
+  };
+
+  const buildApplication = async (payload: any) => {
+    let res: any = {};
+    try {
+      res = await buildApplicationApi(payload);
+    } catch (err) {
+      console.warn('Backend buildApplicationApi warning:', err);
+    }
+
+    const app = res?.application || payload;
+    const activeHierarchyLevels = payload.activeHierarchyLevels && payload.activeHierarchyLevels.length > 0
+      ? payload.activeHierarchyLevels
+      : (app.activeHierarchyLevels || config.activeHierarchyLevels);
+
+    const nextConfig: CmsConfig = {
+      ...config,
+      organisationName: app.organisationName || app.appName || payload.appName || payload.organisationName,
+      headerTitle: app.headerTitle || app.appName || payload.headerTitle || payload.organisationName,
+      stateName: app.stateName || payload.stateName,
+      slogan: app.slogan || payload.slogan,
+      logoUrl: app.logoUrl || payload.logoUrl,
+      primaryColor: app.primaryColor || payload.primaryColor,
+      secondaryColor: app.secondaryColor || payload.secondaryColor,
+      accentColor: app.accentColor || payload.accentColor,
+      activePartyCode: app.activePartyCode || payload.activePartyCode,
+      appScope: app.appScope || payload.appScope,
+      activeHierarchyLevels,
+      parliamentName: app.parliamentName || payload.parliamentName,
+      constituencies: res?.constituencies || app.constituencies || payload.constituencies || [],
+    };
+
+    setConfig(nextConfig);
+    if (res?.constituencies) {
+      setConstituencies(res.constituencies);
+    }
+    if (res?.parties && res.parties.length > 0) {
+      setParties(res.parties);
+      localStorage.setItem('kdp_custom_parties', JSON.stringify(res.parties));
+    } else if (payload.politicalParties && payload.politicalParties.length > 0) {
+      setParties(payload.politicalParties);
+      localStorage.setItem('kdp_custom_parties', JSON.stringify(payload.politicalParties));
+    }
+    applyThemeVariables(nextConfig.primaryColor, nextConfig.secondaryColor, nextConfig.accentColor);
+    localStorage.setItem('kdp_cms_config', JSON.stringify(nextConfig));
+    return res;
+  };
+
+  const updateParties = (nextParties: CmsParty[]) => {
+    setParties(nextParties);
+    localStorage.setItem('kdp_custom_parties', JSON.stringify(nextParties));
+  };
+
   const updateConfig = async (next: Partial<CmsConfig>) => {
     const merged = { ...config, ...next };
     setConfig(merged);
@@ -141,6 +248,10 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     await saveCmsConfig(merged);
   };
 
+  const reloadConfig = async () => {
+    await loadData();
+  };
+
   const t = (hierarchyLevel: string, fallback?: string): string => {
     return config.hierarchyLabels[hierarchyLevel] || fallback || hierarchyLevel;
   };
@@ -157,11 +268,16 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         activeParty,
         partyThemes,
         announcements,
+        constituencies,
         isReady,
         applyPreset,
+        applyTemplate,
+        buildApplication,
         updateConfig,
+        updateParties,
         updateFeatureToggles,
         updateHierarchyLabels,
+        reloadConfig,
         t,
         isFeatureEnabled,
       }}

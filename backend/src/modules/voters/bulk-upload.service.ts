@@ -50,26 +50,190 @@ export interface RawVoterRow {
   remarks?: string;
 }
 
+export interface VoterValidationReport {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  duplicateEpicsCount: number;
+  missingRequiredCount: number;
+  errors: {
+    rowNumber: number;
+    epicNumber?: string;
+    field: string;
+    message: string;
+    suggestion: string;
+  }[];
+  sampleValidRows: any[];
+}
+
+export interface BulkImportOptions {
+  validateOnly?: boolean;
+  importMode?: 'APPEND' | 'REPLACE';
+  voterGroupSize?: number;
+  actorId?: string;
+}
+
 export class BulkUploadService {
-  static async importVotersFromData(constituencyId: string, rows: RawVoterRow[], _actorId?: string) {
+  static async validateVotersOnly(rows: RawVoterRow[]): Promise<VoterValidationReport> {
+    const errors: { rowNumber: number; epicNumber?: string; field: string; message: string; suggestion: string }[] = [];
+    const seenEpicsInFile = new Set<string>();
+    let duplicateEpicsCount = 0;
+    let missingRequiredCount = 0;
+    let validRows = 0;
+    const sampleValidRows: any[] = [];
+
+    const existingEpics = new Set<string>();
+    if (rows.length > 0) {
+      const epicsToCheck = rows.map((r) => String(r.epicNumber || r.epic || '').trim().toUpperCase()).filter(Boolean);
+      const foundInDb = await prisma.voter.findMany({
+        where: { epicNumber: { in: epicsToCheck.slice(0, 1000) } },
+        select: { epicNumber: true },
+      });
+      foundInDb.forEach((v) => existingEpics.add(v.epicNumber));
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 1;
+      const epic = String(row.epicNumber || row.epic || '').trim().toUpperCase();
+      const rawName = String(row.name || row.fullName || '').trim();
+      const ageNum = parseInt(String(row.age || '0'), 10);
+      let isRowValid = true;
+
+      if (!epic) {
+        errors.push({
+          rowNumber: rowNum,
+          field: 'epicNumber',
+          message: 'Voter ID / EPIC number is missing',
+          suggestion: 'Provide unique EPIC Number, e.g., AP01009823',
+        });
+        missingRequiredCount++;
+        isRowValid = false;
+      } else {
+        if (seenEpicsInFile.has(epic)) {
+          errors.push({
+            rowNumber: rowNum,
+            epicNumber: epic,
+            field: 'epicNumber',
+            message: `Duplicate EPIC '${epic}' found inside uploaded file`,
+            suggestion: 'Remove or resolve duplicate EPIC row in spreadsheet',
+          });
+          duplicateEpicsCount++;
+          isRowValid = false;
+        } else {
+          seenEpicsInFile.add(epic);
+        }
+      }
+
+      if (!rawName) {
+        errors.push({
+          rowNumber: rowNum,
+          epicNumber: epic || undefined,
+          field: 'fullName',
+          message: 'Voter full name is missing',
+          suggestion: 'Provide citizen full name in row',
+        });
+        missingRequiredCount++;
+        isRowValid = false;
+      }
+
+      if (isNaN(ageNum) || ageNum < 18 || ageNum > 120) {
+        errors.push({
+          rowNumber: rowNum,
+          epicNumber: epic || undefined,
+          field: 'age',
+          message: `Invalid voter age '${row.age || 'blank'}'. Must be between 18 and 120`,
+          suggestion: 'Enter a valid legal voter age (>= 18)',
+        });
+        isRowValid = false;
+      }
+
+      if (isRowValid) {
+        validRows++;
+        if (sampleValidRows.length < 5) {
+          sampleValidRows.push({
+            serialNumber: row.serialNumber || rowNum,
+            epicNumber: epic,
+            fullName: rawName,
+            age: ageNum,
+            gender: row.gender || 'MALE',
+            mandalName: row.mandal || row.mandalName || 'Mandal 1',
+            villageName: row.village || row.villageName || 'Village 1',
+            boothNumber: row.boothNumber || row.booth || '101',
+          });
+        }
+      }
+    }
+
+    return {
+      totalRows: rows.length,
+      validRows,
+      invalidRows: rows.length - validRows,
+      duplicateEpicsCount,
+      missingRequiredCount,
+      errors: errors.slice(0, 500),
+      sampleValidRows,
+    };
+  }
+
+  static async importVotersFromData(constituencyId: string, rows: RawVoterRow[], options?: BulkImportOptions | string) {
     if (!Array.isArray(rows) || rows.length === 0) {
       throw new Error('No voter data rows provided in upload.');
     }
 
+    const opts: BulkImportOptions = typeof options === 'string' ? { actorId: options } : (options || {});
+
+    if (opts.validateOnly) {
+      return await this.validateVotersOnly(rows);
+    }
+
     // 1. Resolve Target Constituency & Ancestors
-    let constituency = await prisma.constituency.findUnique({
-      where: { id: constituencyId },
-      include: {
-        parliament: {
+    let constituency = null;
+    
+    // Try finding by UUID / ID
+    if (constituencyId && constituencyId.length > 10) {
+      try {
+        constituency = await prisma.constituency.findUnique({
+          where: { id: constituencyId },
           include: {
-            zone: {
-              include: { state: true },
+            parliament: {
+              include: {
+                zone: {
+                  include: { state: true },
+                },
+              },
+            },
+          },
+        });
+      } catch {
+        // Not a UUID or not found
+      }
+    }
+
+    // Try finding by Name or Code
+    if (!constituency && constituencyId) {
+      const cleanName = constituencyId.replace(/\s*\(AC.*?\)\s*/gi, '').trim();
+      constituency = await prisma.constituency.findFirst({
+        where: {
+          OR: [
+            { name: { equals: cleanName, mode: 'insensitive' } },
+            { name: { contains: cleanName, mode: 'insensitive' } },
+            { code: { equals: constituencyId.trim(), mode: 'insensitive' } },
+          ],
+        },
+        include: {
+          parliament: {
+            include: {
+              zone: {
+                include: { state: true },
+              },
             },
           },
         },
-      },
-    });
+      });
+    }
 
+    // Fallback to first available constituency
     if (!constituency) {
       constituency = await prisma.constituency.findFirst({
         include: {
@@ -85,12 +249,48 @@ export class BulkUploadService {
     }
 
     if (!constituency) {
-      throw new Error('Target Assembly Constituency could not be found.');
+      // Auto-provision a default constituency if none exists in DB
+      let state = await prisma.state.findFirst();
+      if (!state) {
+        state = await prisma.state.create({ data: { name: 'Andhra Pradesh', code: 'AP', totalVoters: 40000000 } });
+      }
+      let zone = await prisma.zone.findFirst();
+      if (!zone) {
+        zone = await prisma.zone.create({ data: { stateId: state.id, name: 'Central Zone', code: 'CZ' } });
+      }
+      let par = await prisma.parliament.findFirst();
+      if (!par) {
+        par = await prisma.parliament.create({ data: { zoneId: zone.id, name: 'Ongole Parliament', code: 'PC-ONG' } });
+      }
+      constituency = await prisma.constituency.create({
+        data: {
+          parliamentId: par.id,
+          name: constituencyId || 'Kondapi',
+          code: `AC-${(constituencyId || 'KDP').slice(0, 4).toUpperCase()}`,
+          totalVoters: 228000,
+        },
+        include: {
+          parliament: {
+            include: {
+              zone: {
+                include: { state: true },
+              },
+            },
+          },
+        },
+      });
     }
 
-    const stateId = constituency.parliament.zone.state.id;
-    const zoneId = constituency.parliament.zone.id;
-    const parliamentId = constituency.parliament.id;
+    if (opts.importMode === 'REPLACE') {
+      // Purge previous voters belonging to this constituency
+      await prisma.voter.deleteMany({
+        where: { constituencyId: constituency.id },
+      });
+    }
+
+    const stateId = constituency.parliament?.zone?.state?.id || (await prisma.state.findFirst())?.id || '';
+    const zoneId = constituency.parliament?.zone?.id || (await prisma.zone.findFirst())?.id || '';
+    const parliamentId = constituency.parliament?.id || (await prisma.parliament.findFirst())?.id || '';
 
     // Find constituency organization unit
     let constUnit = await prisma.organizationUnit.findFirst({
@@ -187,10 +387,10 @@ export class BulkUploadService {
         continue;
       }
 
-      const mandalName = String(row.mandal || row.mandalName || 'Kondapi').trim();
-      const villageName = String(row.village || row.villageName || row.panchayat || `${mandalName} Village`).trim();
+      const mandalName = String(row.mandal || row.mandalName || `${constituency.name} Mandal 1`).trim();
+      const villageName = String(row.village || row.villageName || row.panchayat || `${mandalName} Village 1`).trim();
       const boothRaw = String(row.boothNumber || row.booth || row.pollingStation || 'Booth 101').trim();
-      const groupName = String(row.voterGroup || row.cluster || row.team || 'Team A (Voters 1-100)').trim();
+      const groupName = String(row.voterGroup || row.cluster || row.team || '100-Voter Group 1').trim();
 
       // Ensure Mandal
       const mandalKey = mandalName.toLowerCase();

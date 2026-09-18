@@ -14,7 +14,6 @@
   },
   "include": [
     "src/**/*.ts",
-    "server/**/*.ts",
     "prisma/**/*.ts"
   ]
 }

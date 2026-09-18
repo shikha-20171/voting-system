@@ -10,16 +10,16 @@ interface OtpLoginModalProps {
 }
 
 export const ROLE_DEMO_CREDENTIALS: Record<string, { mobile: string; name: string; title: string }> = {
-  SUPER_ADMIN: { mobile: '9848099999', name: 'Super Administrator', title: 'State IT / Multi-Tenant Command' },
-  STATE_ADMIN: { mobile: '9848088888', name: 'AP State Central Command', title: 'Statewide War Room' },
-  ZONE_INCHARGE: { mobile: '9848099999', name: 'Zone Incharge Officer', title: 'Zone Command' },
-  PARLIAMENT_INCHARGE: { mobile: '9848088888', name: 'Parliament Incharge Officer', title: 'Parliament Command' },
-  CONSTITUENCY_INCHARGE: { mobile: '9848012345', name: 'Dr. Dola Bala Veeranjaneya Swamy', title: 'MLA Incharge (Kondapi)' },
-  MANDAL_INCHARGE: { mobile: '9848077777', name: 'Kondapi Mandal Incharge', title: 'Mandal Level Command' },
-  VILLAGE_INCHARGE: { mobile: '9848010001', name: 'Village President', title: 'Village Level Command' },
-  BOOTH_PRESIDENT: { mobile: '9848010002', name: 'Booth 101 President', title: 'Polling Booth Command' },
+  SUPER_ADMIN: { mobile: '9848099999', name: 'Super Administrator', title: 'System Governance & Telemetry' },
+  STATE_ADMIN: { mobile: '9848088888', name: 'State Incharge', title: 'Statewide War Room & Apex Command' },
+  ZONE_INCHARGE: { mobile: '9848099999', name: 'Zone Coordinator', title: 'Multi-Parliament Zone Command' },
+  PARLIAMENT_INCHARGE: { mobile: '9848088888', name: 'Parliament Incharge', title: 'Parliament MP War Room' },
+  CONSTITUENCY_INCHARGE: { mobile: '9848012345', name: 'Constituency Incharge', title: 'Assembly Constituency Command' },
+  MANDAL_INCHARGE: { mobile: '9848077777', name: 'Mandal President', title: 'Mandal Level Leadership' },
+  VILLAGE_INCHARGE: { mobile: '9848010001', name: 'Village Incharge', title: 'Village Level Leadership' },
+  BOOTH_PRESIDENT: { mobile: '9848010002', name: 'Booth President', title: 'Polling Booth Command' },
   POLLING_AGENT: { mobile: '9848010002', name: 'Polling Agent', title: 'Polling Station Agent' },
-  VOTER_100_INCHARGE: { mobile: '9848010003', name: 'Marella Venkateswarlu', title: '100-Voter Cluster Incharge' },
+  VOTER_100_INCHARGE: { mobile: '9848010003', name: '100 Voter Incharge', title: '100-Voter Cluster Outreach' },
   VIEWER: { mobile: '9848012345', name: 'Observer / Viewer', title: 'Read-Only View' },
 };
 

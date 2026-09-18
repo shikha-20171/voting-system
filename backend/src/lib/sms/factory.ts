@@ -4,6 +4,7 @@ import { GenericHttpSmsProvider } from './providers/generic-http.provider.js';
 import { TwilioSmsProvider } from './providers/twilio.provider.js';
 import { Fast2SmsProvider } from './providers/fast2sms.provider.js';
 import { Msg91SmsProvider } from './providers/msg91.provider.js';
+import { WhatsAppCloudProvider } from './providers/whatsapp-cloud.provider.js';
 
 let activeProviderInstance: SmsProvider | null = null;
 
@@ -52,6 +53,12 @@ export class SmsProviderFactory {
           templateId: process.env.MSG91_TEMPLATE_ID || process.env.SMS_TEMPLATE_ID,
           senderId: process.env.SMS_SENDER_ID || 'KNDTDP',
         });
+        break;
+
+      case 'whatsapp':
+      case 'whatsapp-cloud':
+      case 'meta-whatsapp':
+        activeProviderInstance = new WhatsAppCloudProvider();
         break;
 
       case 'console':

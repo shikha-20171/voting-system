@@ -1,7 +1,35 @@
 import { VoterPreference } from '../types';
-import { getApiBase } from './api';
+import { apiFetch } from './api';
+import { getAuthToken } from './authStorage';
 
-const API_BASE = getApiBase();
+export type AppScope = 'SINGLE_MLA' | 'PARLIAMENT_MP' | 'ZONE' | 'STATE';
+
+export interface ConstituencyItem {
+  id?: string;
+  name: string;
+  code?: string;
+  totalVoters?: number;
+  _count?: { mandals?: number; voters?: number };
+}
+
+export interface ApplicationTemplate {
+  id: string;
+  name: string;
+  scope: AppScope;
+  scopeBadge: string;
+  description: string;
+  stateName: string;
+  parliamentName?: string;
+  constituencies: ConstituencyItem[];
+  parties: { name: string; code: string; shortName: string; primaryColor: string; symbolName?: string }[];
+  activePartyCode: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  slogan: string;
+  logoUrl?: string;
+  hierarchyLevels: string[];
+}
 
 export interface CmsConfig {
   organisationName: string;
@@ -15,6 +43,12 @@ export interface CmsConfig {
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
+  appScope: AppScope;
+  candidateName?: string;
+  activeHierarchyLevels: string[];
+  parliamentName?: string;
+  parliamentCode?: string;
+  constituencies: ConstituencyItem[];
   hierarchyLabels: Record<string, string>;
   featureToggles: {
     voterManagement: boolean;
@@ -51,6 +85,8 @@ export interface CmsParty {
   symbolName?: string | null;
   isActive: boolean;
   sortOrder: number;
+  lifecycleStatus?: 'DRAFT' | 'PUBLISHED' | 'LOCKED';
+  isLocked?: boolean;
 }
 
 export interface PartyTheme {
@@ -75,6 +111,97 @@ export interface PartyPreset {
   logoUrl: string;
 }
 
+export const APPLICATION_TEMPLATES: ApplicationTemplate[] = [
+  {
+    id: 'single_mla_kondapi',
+    name: 'Kondapi Connect (Single MLA Candidate)',
+    scope: 'SINGLE_MLA',
+    scopeBadge: '1 MLA Candidate',
+    description: 'Constituency War Room & Voter Intelligence cockpit for a single Assembly Constituency candidate.',
+    stateName: 'Andhra Pradesh',
+    constituencies: [
+      { name: 'Kondapi Assembly Constituency (AC No. 107)', code: 'AC-107', totalVoters: 228000 },
+    ],
+    parties: [
+      { name: 'Telugu Desam Party', code: 'TDP', shortName: 'TDP', primaryColor: '#eab308', symbolName: 'Bicycle' },
+      { name: 'YSR Congress Party', code: 'YSRCP', shortName: 'YSRCP', primaryColor: '#2563eb', symbolName: 'Fan' },
+      { name: 'JanaSena Party', code: 'JSP', shortName: 'JSP', primaryColor: '#dc2626', symbolName: 'Glass' },
+      { name: 'Bharatiya Janata Party', code: 'BJP', shortName: 'BJP', primaryColor: '#f97316', symbolName: 'Lotus' },
+      { name: 'Indian National Congress', code: 'INC', shortName: 'INC', primaryColor: '#0284c7', symbolName: 'Hand' },
+    ],
+    activePartyCode: 'TDP',
+    primaryColor: '#eab308',
+    secondaryColor: '#1e293b',
+    accentColor: '#3b82f6',
+    slogan: 'Empowering Cadre, Uniting Citizens for Kondapi 2026',
+    logoUrl: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=150&auto=format&fit=crop&q=80',
+    hierarchyLevels: ['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY'],
+  },
+  {
+    id: 'parliament_ongole',
+    name: 'Ongole Parliament Connect (7 MLAs + 1 MP Candidate)',
+    scope: 'PARLIAMENT_MP',
+    scopeBadge: '7 MLAs + 1 MP Candidate',
+    description: 'Integrated Parliament Segment Platform coordinating 1 MP Candidate across all 7 underlying Assembly Constituencies.',
+    stateName: 'Andhra Pradesh',
+    parliamentName: 'Ongole Parliament Constituency',
+    constituencies: [
+      { name: 'Ongole Constituency', code: 'AC-101', totalVoters: 235000 },
+      { name: 'Kandukur Constituency', code: 'AC-102', totalVoters: 218000 },
+      { name: 'Darsi Constituency', code: 'AC-103', totalVoters: 212000 },
+      { name: 'Addanki Constituency', code: 'AC-104', totalVoters: 224000 },
+      { name: 'Kondapi Constituency', code: 'AC-107', totalVoters: 228000 },
+      { name: 'Santhanuthalapadu Constituency', code: 'AC-106', totalVoters: 210000 },
+      { name: 'Kanigiri Constituency', code: 'AC-105', totalVoters: 220000 },
+    ],
+    parties: [
+      { name: 'Telugu Desam Party', code: 'TDP', shortName: 'TDP', primaryColor: '#eab308', symbolName: 'Bicycle' },
+      { name: 'JanaSena Party', code: 'JSP', shortName: 'JSP', primaryColor: '#dc2626', symbolName: 'Glass' },
+      { name: 'Bharatiya Janata Party', code: 'BJP', shortName: 'BJP', primaryColor: '#f97316', symbolName: 'Lotus' },
+      { name: 'YSR Congress Party', code: 'YSRCP', shortName: 'YSRCP', primaryColor: '#2563eb', symbolName: 'Fan' },
+      { name: 'Indian National Congress', code: 'INC', shortName: 'INC', primaryColor: '#0284c7', symbolName: 'Hand' },
+    ],
+    activePartyCode: 'TDP',
+    primaryColor: '#eab308',
+    secondaryColor: '#0f172a',
+    accentColor: '#3b82f6',
+    slogan: 'Ongole Parliamentary Central War Room & Multi-Constituency Command',
+    logoUrl: 'https://images.unsplash.com/photo-1540910419892-4a36d2c3266c?w=150&auto=format&fit=crop&q=80',
+    hierarchyLevels: ['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY', 'PARLIAMENT'],
+  },
+  {
+    id: 'statewide_telangana',
+    name: 'Telangana Congress Connect (TPCC — 119 MLAs + 17 MPs)',
+    scope: 'STATE',
+    scopeBadge: 'Statewide (119 MLAs + 17 MPs)',
+    description: 'Telangana Pradesh Congress Committee command center — comprehensive voter management across 5 zones, 17 Parliament seats, 119 constituencies.',
+    stateName: 'Telangana',
+    constituencies: [
+      { name: 'Nalgonda Constituency', code: 'TS-AC-92', totalVoters: 220000 },
+      { name: 'Warangal West Constituency', code: 'TS-AC-105', totalVoters: 245000 },
+      { name: 'Warangal East Constituency', code: 'TS-AC-106', totalVoters: 238000 },
+      { name: 'Khammam Constituency', code: 'TS-AC-112', totalVoters: 250000 },
+      { name: 'Karimnagar Constituency', code: 'TS-AC-26', totalVoters: 260000 },
+      { name: 'Secunderabad Constituency', code: 'TS-AC-70', totalVoters: 265000 },
+      { name: 'Munugode Constituency', code: 'TS-AC-91', totalVoters: 215000 },
+      { name: 'Choppadandi Constituency', code: 'TS-AC-25', totalVoters: 230000 },
+    ],
+    parties: [
+      { name: 'Indian National Congress', code: 'INC', shortName: 'INC', primaryColor: '#FF6600', symbolName: 'Hand' },
+      { name: 'Bharat Rashtra Samithi', code: 'BRS', shortName: 'BRS', primaryColor: '#ec4899', symbolName: 'Car' },
+      { name: 'Bharatiya Janata Party', code: 'BJP', shortName: 'BJP', primaryColor: '#f97316', symbolName: 'Lotus' },
+      { name: 'AIMIM', code: 'AIMIM', shortName: 'AIMIM', primaryColor: '#15803d', symbolName: 'Kite' },
+      { name: 'Telugu Desam Party', code: 'TDP', shortName: 'TDP', primaryColor: '#eab308', symbolName: 'Bicycle' },
+    ],
+    activePartyCode: 'INC',
+    primaryColor: '#FF6600',
+    secondaryColor: '#138808',
+    accentColor: '#0038A8',
+    slogan: 'Praja Palana — Congress Ki Guarantee for Telangana',
+    hierarchyLevels: ['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY', 'PARLIAMENT', 'ZONE', 'STATE'],
+  },
+];
+
 export const PARTY_PRESETS: PartyPreset[] = [
   {
     id: 'tdp',
@@ -90,15 +217,15 @@ export const PARTY_PRESETS: PartyPreset[] = [
   },
   {
     id: 'inc',
-    name: 'Indian National Congress (INC)',
+    name: 'Indian National Congress — TPCC (INC)',
     code: 'INC',
-    stateName: 'Telangana / Andhra Pradesh',
-    appName: 'Praja Pragathi Connect (INC)',
-    slogan: 'Progress, Equality and Social Justice for All',
-    primaryColor: '#0284c7',
-    secondaryColor: '#16a34a',
-    accentColor: '#ea580c',
-    logoUrl: 'https://images.unsplash.com/photo-1532375810709-75b1da00537c?w=150&auto=format&fit=crop&q=80',
+    stateName: 'Telangana',
+    appName: 'Telangana Congress Connect',
+    slogan: 'Praja Palana — Congress Ki Guarantee for Telangana',
+    primaryColor: '#FF6600',
+    secondaryColor: '#138808',
+    accentColor: '#0038A8',
+    logoUrl: '',
   },
   {
     id: 'ysrcp',
@@ -163,24 +290,33 @@ export const PARTY_PRESETS: PartyPreset[] = [
 ];
 
 export const DEFAULT_CONFIG: CmsConfig = {
-  organisationName: 'Kondapi TDP Connect',
-  headerTitle: 'Kondapi Assembly Constituency',
-  stateName: 'Andhra Pradesh',
-  defaultLanguage: 'te',
-  activePartyCode: 'TDP',
-  primaryColor: '#eab308',
-  secondaryColor: '#1e293b',
-  accentColor: '#3b82f6',
-  slogan: 'Empowering Cadre, Uniting Citizens for Kondapi 2026',
+  organisationName: 'Telangana Congress Connect',
+  headerTitle: 'Telangana Congress Connect',
+  stateName: 'Telangana',
+  defaultLanguage: 'te-IN',
+  activePartyCode: 'INC',
+  primaryColor: '#FF6600',
+  secondaryColor: '#138808',
+  accentColor: '#0038A8',
+  appScope: 'STATE',
+  activeHierarchyLevels: ['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY', 'PARLIAMENT', 'ZONE', 'STATE'],
+  constituencies: [
+    { name: 'Nalgonda Constituency', code: 'TS-AC-92', totalVoters: 220000 },
+    { name: 'Warangal West Constituency', code: 'TS-AC-105', totalVoters: 245000 },
+    { name: 'Khammam Constituency', code: 'TS-AC-112', totalVoters: 250000 },
+    { name: 'Karimnagar Constituency', code: 'TS-AC-26', totalVoters: 260000 },
+    { name: 'Secunderabad Constituency', code: 'TS-AC-70', totalVoters: 265000 },
+  ],
+  slogan: 'Praja Palana — Congress Ki Guarantee for Telangana',
   hierarchyLabels: {
-    STATE: 'State',
-    ZONE: 'Zone',
-    PARLIAMENT: 'Parliament',
-    CONSTITUENCY: 'Constituency',
-    MANDAL: 'Mandal',
-    VILLAGE: 'Village',
-    BOOTH: 'Booth',
-    VOTER_GROUP: '100-Voter Incharge',
+    STATE: 'State Incharge',
+    ZONE: 'Zone Coordinator',
+    PARLIAMENT: 'Parliament Incharge',
+    CONSTITUENCY: 'Constituency Incharge',
+    MANDAL: 'Mandal President',
+    VILLAGE: 'Village Incharge',
+    BOOTH: 'Booth President',
+    VOTER_GROUP: 'Indiramma Incharge (100 Voters)',
   },
   featureToggles: {
     voterManagement: true,
@@ -204,9 +340,9 @@ export const DEFAULT_CONFIG: CmsConfig = {
   },
   analyticsConfig: {
     electionYear: 2024,
-    targetSeats: 175,
-    majorityMark: 88,
-    trackedParties: ['TDP', 'YSRCP', 'JSP', 'BJP', 'INC', 'OTH'],
+    targetSeats: 60,
+    majorityMark: 60,
+    trackedParties: ['INC', 'BRS', 'BJP', 'AIMIM', 'OTH'],
   },
   aiEnabled: true,
 };
@@ -237,44 +373,56 @@ export function applyThemeVariables(primaryColor: string, secondaryColor?: strin
 
 export async function fetchCmsConfig(): Promise<{ config: CmsConfig; parties: CmsParty[]; announcements: any[] }> {
   try {
-    const res = await fetch(`${API_BASE}/api/cms/config`);
-    if (!res.ok) throw new Error('Failed to load CMS config');
-    const data = await res.json();
-    const payload = data.data || {};
+    const payload = await apiFetch<any>('/api/cms/config');
+    const rawConfig = payload?.config || payload || {};
+    const parties = (payload?.parties as CmsParty[]) || [];
+    const announcements = payload?.announcements || [];
+    const constituencies = (payload?.constituencies as ConstituencyItem[]) || rawConfig.constituencies || DEFAULT_CONFIG.constituencies;
 
-    const rawConfig = payload.config || {};
     const config: CmsConfig = {
+      ...DEFAULT_CONFIG,
+      ...rawConfig,
       organisationName: rawConfig.organisationName || DEFAULT_CONFIG.organisationName,
-      headerTitle: rawConfig.organisationName || DEFAULT_CONFIG.headerTitle,
+      headerTitle: rawConfig.headerTitle || rawConfig.organisationName || DEFAULT_CONFIG.headerTitle,
       stateName: rawConfig.stateName || DEFAULT_CONFIG.stateName,
       defaultLanguage: rawConfig.defaultLanguage || DEFAULT_CONFIG.defaultLanguage,
-      activePartyCode: DEFAULT_CONFIG.activePartyCode,
-      primaryColor: DEFAULT_CONFIG.primaryColor,
-      secondaryColor: DEFAULT_CONFIG.secondaryColor,
-      accentColor: DEFAULT_CONFIG.accentColor,
-      slogan: DEFAULT_CONFIG.slogan,
-      hierarchyLabels: (rawConfig.hierarchyLabels as Record<string, string>) || DEFAULT_CONFIG.hierarchyLabels,
+      activePartyCode: rawConfig.activePartyCode || DEFAULT_CONFIG.activePartyCode,
+      primaryColor: rawConfig.primaryColor || DEFAULT_CONFIG.primaryColor,
+      secondaryColor: rawConfig.secondaryColor || DEFAULT_CONFIG.secondaryColor,
+      accentColor: rawConfig.accentColor || DEFAULT_CONFIG.accentColor,
+      slogan: rawConfig.slogan || DEFAULT_CONFIG.slogan,
+      logoUrl: rawConfig.logoUrl || DEFAULT_CONFIG.logoUrl,
+      faviconUrl: rawConfig.faviconUrl || DEFAULT_CONFIG.faviconUrl,
+      appScope: (rawConfig.appScope as AppScope) || DEFAULT_CONFIG.appScope,
+      candidateName: rawConfig.candidateName || DEFAULT_CONFIG.candidateName,
+      activeHierarchyLevels: Array.isArray(rawConfig.activeHierarchyLevels) && rawConfig.activeHierarchyLevels.length > 0
+        ? rawConfig.activeHierarchyLevels
+        : DEFAULT_CONFIG.activeHierarchyLevels,
+      parliamentName: rawConfig.parliamentName || DEFAULT_CONFIG.parliamentName,
+      parliamentCode: rawConfig.parliamentCode || DEFAULT_CONFIG.parliamentCode,
+      constituencies: constituencies.length ? constituencies : DEFAULT_CONFIG.constituencies,
+      hierarchyLabels: {
+        ...DEFAULT_CONFIG.hierarchyLabels,
+        ...(rawConfig.hierarchyLabels || {}),
+      },
       featureToggles: {
         ...DEFAULT_CONFIG.featureToggles,
-        ...(rawConfig.featureToggles as any),
+        ...(rawConfig.featureToggles || {}),
       },
-      dashboardConfig: DEFAULT_CONFIG.dashboardConfig,
-      analyticsConfig: DEFAULT_CONFIG.analyticsConfig,
+      dashboardConfig: rawConfig.dashboardConfig || DEFAULT_CONFIG.dashboardConfig,
+      analyticsConfig: rawConfig.analyticsConfig || DEFAULT_CONFIG.analyticsConfig,
       aiEnabled: rawConfig.aiEnabled ?? true,
     };
 
-    const parties = (payload.parties as CmsParty[]) || [];
-    const announcements = payload.announcements || [];
-
-    // Apply primary color from active party or config
     const activeParty = parties.find((p) => p.code === config.activePartyCode) || parties[0];
     if (activeParty) {
-      config.primaryColor = activeParty.primaryColor;
-      config.secondaryColor = activeParty.secondaryColor || '#1e293b';
-      config.accentColor = activeParty.accentColor || '#3b82f6';
-      applyThemeVariables(config.primaryColor, config.secondaryColor, config.accentColor);
+      config.primaryColor = config.primaryColor || activeParty.primaryColor;
+      config.secondaryColor = config.secondaryColor || activeParty.secondaryColor || '#1e293b';
+      config.accentColor = config.accentColor || activeParty.accentColor || '#3b82f6';
+      if (activeParty.logoUrl && !config.logoUrl) config.logoUrl = activeParty.logoUrl;
     }
 
+    applyThemeVariables(config.primaryColor, config.secondaryColor, config.accentColor);
     return { config, parties, announcements };
   } catch (err) {
     console.warn('[CMS] Fallback to default local config:', err);
@@ -285,34 +433,36 @@ export async function fetchCmsConfig(): Promise<{ config: CmsConfig; parties: Cm
 
 export async function saveCmsConfig(config: Partial<CmsConfig>, token?: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/cms/branding`, {
+    const authToken = token || getAuthToken();
+    await apiFetch('/api/cms/config', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
       body: JSON.stringify({
+        organisationName: config.organisationName,
         appName: config.organisationName,
         headerTitle: config.headerTitle || config.organisationName,
+        slogan: config.slogan,
+        logoUrl: config.logoUrl,
+        faviconUrl: config.faviconUrl,
+        stateName: config.stateName,
+        defaultLanguage: config.defaultLanguage,
         primaryColor: config.primaryColor,
         secondaryColor: config.secondaryColor,
         accentColor: config.accentColor,
         activePartyCode: config.activePartyCode,
+        appScope: config.appScope,
+        parliamentName: config.parliamentName,
+        parliamentCode: config.parliamentCode,
+        candidateName: config.candidateName,
+        hierarchyLabels: config.hierarchyLabels,
+        featureToggles: config.featureToggles,
+        activeHierarchyLevels: config.activeHierarchyLevels,
+        dashboardConfig: config.dashboardConfig,
+        analyticsConfig: config.analyticsConfig,
+        aiEnabled: config.aiEnabled,
       }),
     });
-
-    if (config.featureToggles) {
-      await fetch(`${API_BASE}/api/cms/features`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(config.featureToggles),
-      });
-    }
-
-    return res.ok;
+    return true;
   } catch (err) {
     console.error('[CMS] Save failed:', err);
     return false;
@@ -337,4 +487,39 @@ export function buildPartyThemes(parties: CmsParty[]): Record<VoterPreference, P
   });
 
   return themes;
+}
+
+export async function buildApplicationApi(payload: {
+  appName: string;
+  organisationName: string;
+  headerTitle?: string;
+  slogan?: string;
+  logoUrl?: string;
+  stateName: string;
+  primaryColor: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  activePartyCode: string;
+  appScope: AppScope;
+  activeHierarchyLevels: string[];
+  parliamentName?: string;
+  constituencies: ConstituencyItem[];
+  politicalParties: { name: string; code: string; shortName: string; primaryColor: string; symbolName?: string; logoUrl?: string }[];
+  hierarchyLabels?: Record<string, string>;
+  featureToggles?: Record<string, boolean>;
+}, token?: string): Promise<any> {
+  const authToken = token || getAuthToken();
+  return apiFetch('/api/cms/build-application', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchConstituenciesApi(): Promise<ConstituencyItem[]> {
+  try {
+    return await apiFetch<ConstituencyItem[]>('/api/cms/constituencies');
+  } catch {
+    return [];
+  }
 }

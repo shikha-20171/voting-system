@@ -1,6 +1,0 @@
-{
-  "name": "Kondapi TDP Connect",
-  "description": "Integrated Voter Management & Constituency Command Center for Kondapi Assembly Constituency",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

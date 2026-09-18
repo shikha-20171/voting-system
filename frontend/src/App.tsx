@@ -6,7 +6,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
 import RoleSelection from './components/RoleSelection';
-import PasscodeModal from './components/PasscodeModal';
 import OtpLoginModal from './components/OtpLoginModal';
 import DashboardPlaceholders from './components/DashboardPlaceholders';
 import Voter100Dashboard from './components/Voter100Dashboard';
@@ -18,11 +17,17 @@ import SuperAdminDashboard from './components/SuperAdminDashboard';
 import StateDashboard from './components/StateDashboard';
 import ZoneParliamentDashboard from './components/ZoneParliamentDashboard';
 import Footer from './components/Footer';
-import HierarchyPulse from './components/HierarchyPulse';
+import CmsStudio from './components/cms/CmsStudio';
+import RoleQuickSwitcher from './components/RoleQuickSwitcher';
+import PlatformAdminPortal from './components/PlatformAdminPortal';
+import AssignDataModule from './components/cms/AssignDataModule';
+import AssignInchargesModule from './components/cms/AssignInchargesModule';
+import LandingPage from './components/landing/LandingPage';
+import { Sliders } from 'lucide-react';
 import { CommandRole, RoleType, UserSession } from './types';
 import { clearAuthToken, getAuthToken, setAuthToken } from './lib/authStorage';
+import { getMockSessionForRole } from './lib/api';
 import { useCms } from './context/CmsContext';
-import { Lock, ShieldCheck, Unlock } from 'lucide-react';
 
 const ROUTE_BY_ROLE: Record<RoleType, string> = {
   SUPER_ADMIN: '/super-admin',
@@ -39,8 +44,10 @@ const ROUTE_BY_ROLE: Record<RoleType, string> = {
 };
 
 export default function App() {
-  const [currentPasscode, setCurrentPasscode] = useState(() => localStorage.getItem('kdp_admin_passcode') || '2026');
-  const [isPanelLocked, setIsPanelLocked] = useState(() => localStorage.getItem('kdp_panel_locked') === 'true');
+  const [isPartyCreated, setIsPartyCreated] = useState<boolean>(() => {
+    return localStorage.getItem('kdp_party_created') === 'true';
+  });
+
   const [activeSession, setActiveSession] = useState<UserSession | null>(() => {
     const token = getAuthToken();
     const saved = localStorage.getItem('kdp_active_session');
@@ -54,26 +61,38 @@ export default function App() {
       return null;
     }
   });
-  const [securityModalMode, setSecurityModalMode] = useState<'unlock' | 'change' | null>(null);
+
   const [selectedRole, setSelectedRole] = useState<CommandRole | null>(null);
   const [currentPath, setCurrentPath] = useState(() => window.location.hash.replace('#', '') || '/');
 
+  // Dev helper: allows resetting party setup from developer console if ever needed
+  useEffect(() => {
+    (window as any).__resetPartySetup = () => {
+      localStorage.removeItem('kdp_party_created');
+      localStorage.removeItem('kdp_cms_config');
+      localStorage.removeItem('kdp_custom_parties');
+      window.location.hash = '/';
+      window.location.reload();
+    };
+  }, []);
+
   useEffect(() => {
     const handleHashChange = () => {
-      setCurrentPath(window.location.hash.replace('#', '') || '/');
+      const newPath = window.location.hash.replace('#', '') || '/';
+      setCurrentPath(newPath);
     };
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // When party is already created, only lock out first-time wizard setup route
   useEffect(() => {
-    localStorage.setItem('kdp_admin_passcode', currentPasscode);
-  }, [currentPasscode]);
-
-  useEffect(() => {
-    localStorage.setItem('kdp_panel_locked', isPanelLocked ? 'true' : 'false');
-  }, [isPanelLocked]);
+    const isSuperAdmin = activeSession?.role === 'SUPER_ADMIN';
+    if (isPartyCreated && !isSuperAdmin && currentPath === '/setup/party') {
+      window.location.hash = '/app';
+    }
+  }, [isPartyCreated, currentPath, activeSession]);
 
   // Validate & re-hydrate user session from backend on mount
   useEffect(() => {
@@ -88,7 +107,7 @@ export default function App() {
             mobileNumber: user.mobileNumber || '',
             role: user.role,
             unitId: user.unitId || assignment?.unitId || '',
-            assignedConstituency: assignment?.constituency?.name || 'Kondapi',
+            assignedConstituency: assignment?.constituency?.name || 'Nalgonda',
             assignedMandal: assignment?.mandal?.name || user.unitName,
             assignedVillage: assignment?.village?.name,
             assignedBooth: assignment?.booth?.boothNumber || assignment?.booth?.name,
@@ -123,13 +142,46 @@ export default function App() {
     localStorage.removeItem('kdp_active_session');
   }, [activeSession]);
 
-  useEffect(() => {
-    if (currentPath === '/' && activeSession) {
-      window.location.hash = ROUTE_BY_ROLE[activeSession.role];
-    }
-  }, [activeSession, currentPath]);
+  const currentRouteRole = useMemo<RoleType | null>(() => {
+    if (currentPath.startsWith('/super-admin')) return 'SUPER_ADMIN';
+    if (currentPath.startsWith('/state')) return 'STATE_ADMIN';
+    if (currentPath.startsWith('/zone')) return 'ZONE_INCHARGE';
+    if (currentPath.startsWith('/parliament')) return 'PARLIAMENT_INCHARGE';
+    if (currentPath.startsWith('/constituency')) return 'CONSTITUENCY_INCHARGE';
+    if (currentPath.startsWith('/mandal')) return 'MANDAL_INCHARGE';
+    if (currentPath.startsWith('/village')) return 'VILLAGE_INCHARGE';
+    if (currentPath.startsWith('/booth')) return 'BOOTH_PRESIDENT';
+    if (currentPath.startsWith('/100-voter')) return 'VOTER_100_INCHARGE';
+    return null;
+  }, [currentPath]);
 
-  const isDashboardActive = Boolean(activeSession);
+  // If user navigates directly to a role URL, ensure they have the matching session ready
+  useEffect(() => {
+    if (currentRouteRole && (!activeSession || activeSession.role !== currentRouteRole)) {
+      const mockSession = getMockSessionForRole(currentRouteRole);
+      setActiveSession(mockSession);
+      setAuthToken(`demo-token-${currentRouteRole}`);
+    }
+  }, [currentRouteRole]);
+
+  const isLandingRoute = currentPath === '/' || currentPath === '' || currentPath === '/landing';
+  const isRolesRoute = currentPath === '/app' || currentPath === '/app/' || currentPath === '/roles';
+  const isCmsRoute =
+    currentPath === '/cms' ||
+    currentPath === '/admin' ||
+    currentPath === '/platform-admin' ||
+    currentPath === '/assign-data' ||
+    currentPath === '/assign-incharges';
+  const isDashboardActive = Boolean(activeSession) && !isCmsRoute && !isLandingRoute && !isRolesRoute;
+
+  const handleResetParty = () => {
+    localStorage.removeItem('kdp_party_created');
+    localStorage.removeItem('kdp_active_session');
+    clearAuthToken();
+    setIsPartyCreated(false);
+    setActiveSession(null);
+    window.location.hash = '/';
+  };
 
   useEffect(() => {
     if (isDashboardActive) {
@@ -151,17 +203,6 @@ export default function App() {
       document.documentElement.style.height = '';
     };
   }, [isDashboardActive]);
-
-  const currentRouteRole = useMemo<RoleType | null>(() => {
-    if (currentPath.startsWith('/constituency')) return 'CONSTITUENCY_INCHARGE';
-    if (currentPath.startsWith('/mandal')) return 'MANDAL_INCHARGE';
-    if (currentPath.startsWith('/village')) return 'VILLAGE_INCHARGE';
-    if (currentPath.startsWith('/booth')) return 'BOOTH_PRESIDENT';
-    if (currentPath.startsWith('/100-voter')) return 'VOTER_100_INCHARGE';
-    return null;
-  }, [currentPath]);
-
-  const isAuthenticatedForCurrentRoute = !currentRouteRole || activeSession?.role === currentRouteRole;
 
   const handleSelectRole = (role: CommandRole) => {
     setSelectedRole(role);
@@ -185,45 +226,15 @@ export default function App() {
     localStorage.setItem('kdp_logged_out', 'true');
     localStorage.removeItem('kdp_active_session');
     setActiveSession(null);
-    window.location.hash = '/';
+    window.location.hash = isPartyCreated ? '/roles' : '/';
   };
-
-  const triggerLock = () => {
-    if (isPanelLocked) {
-      setSecurityModalMode('unlock');
-      return;
-    }
-
-    setIsPanelLocked(true);
-  };
-
-  const renderLockedWorkspace = () => (
-    <main className="flex-1 flex flex-col items-center justify-center text-center px-4 py-16 max-w-md mx-auto space-y-6 select-none animate-fade-in">
-      <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center border-2 border-yellow-400 text-yellow-600 shadow-md">
-        <Lock className="w-8 h-8" />
-      </div>
-      <div className="space-y-2">
-        <h2 className="text-xl font-bold text-gray-900 tracking-tight">Command Workspace Locked</h2>
-        <p className="text-xs text-gray-500 font-medium leading-relaxed">
-          Access to the Kondapi Constituency Command Center has been locked by the chief operator. Enter the master passcode to unlock.
-        </p>
-      </div>
-      <button
-        onClick={() => setSecurityModalMode('unlock')}
-        className="w-full py-3 bg-yellow-400 hover:bg-yellow-500 text-gray-950 font-bold rounded-xl shadow-md hover:shadow transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-      >
-        <Unlock className="w-4 h-4" />
-        Unlock Workspace
-      </button>
-    </main>
-  );
 
   const renderRoleSelection = () => (
     <RoleSelection
       onSelectRole={handleSelectRole}
-      onLock={triggerLock}
-      onChangePasscode={() => setSecurityModalMode('change')}
-      isPanelLocked={isPanelLocked}
+      onLock={() => {}}
+      onChangePasscode={() => {}}
+      isPanelLocked={false}
     />
   );
 
@@ -257,55 +268,156 @@ export default function App() {
     }
   };
 
+  const { config } = useCms();
+
   const renderView = () => {
-    if (isPanelLocked) {
-      return renderLockedWorkspace();
+    // 1. Landing Page (Default initial view)
+    if (isLandingRoute) {
+      return (
+        <LandingPage
+          isPartyCreated={isPartyCreated}
+          onResetParty={handleResetParty}
+          onEnterApp={() => {
+            window.location.hash = isPartyCreated ? '/roles' : '/cms';
+          }}
+          onOpenLogin={() => {
+            window.location.hash = isPartyCreated ? '/roles' : '/cms';
+          }}
+          onGetStarted={() => {
+            window.location.hash = '/cms';
+          }}
+        />
+      );
     }
 
-    if (!activeSession) {
+    // 2. CMS Platform Admin & Assignment routes
+    if (currentPath === '/platform-admin' || currentPath === '/admin') {
+      return <PlatformAdminPortal />;
+    }
+
+    if (currentPath === '/assign-data') {
+      return (
+        <AssignDataModule
+          onNavigateToIncharges={() => {
+            window.location.hash = '/assign-incharges';
+          }}
+          onClose={() => {
+            window.location.hash = '/platform-admin';
+          }}
+        />
+      );
+    }
+
+    if (currentPath === '/assign-incharges') {
+      return (
+        <AssignInchargesModule
+          onNavigateToData={() => {
+            window.location.hash = '/assign-data';
+          }}
+          onClose={() => {
+            window.location.hash = '/platform-admin';
+          }}
+        />
+      );
+    }
+
+    // 3. CMS Studio
+    if (currentPath === '/cms') {
+      return (
+        <CmsStudio
+          isOpen={true}
+          mode={isPartyCreated ? 'editor' : 'setup'}
+          onClose={() => {
+            window.location.hash = isPartyCreated ? '/roles' : '/';
+          }}
+          onOpenRoleModules={() => {
+            setIsPartyCreated(true);
+            localStorage.setItem('kdp_party_created', 'true');
+            window.location.hash = '/roles';
+          }}
+        />
+      );
+    }
+
+    // 4. Role Selection Route: Only show roles AFTER application creation!
+    if (isRolesRoute || !activeSession) {
+      if (!isPartyCreated) {
+        return (
+          <div className="min-h-[75vh] flex items-center justify-center p-6 bg-slate-50">
+            <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200 p-8 shadow-xl text-center space-y-5">
+              <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto shadow-inner">
+                <Sliders className="w-8 h-8" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">Application Not Created Yet</h2>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Roles and hierarchy-scoped dashboards are generated dynamically from your CMS application configuration.
+                  Please launch CMS Studio to create your election application first.
+                </p>
+              </div>
+              <div className="pt-2 space-y-2.5">
+                <button
+                  onClick={() => {
+                    window.location.hash = '/cms';
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm transition-all shadow-md shadow-amber-500/20 active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Sliders className="w-4 h-4" />
+                  <span>Launch CMS Studio</span>
+                </button>
+                <button
+                  onClick={() => {
+                    window.location.hash = '/';
+                  }}
+                  className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  Back to Landing Page
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
       return renderRoleSelection();
     }
 
     return renderAuthenticatedView();
   };
 
-  const { config } = useCms();
-
   return (
     <div className={`${isDashboardActive ? 'h-screen overflow-hidden' : 'min-h-screen'} bg-gray-50 text-gray-900 flex flex-col justify-between selection:bg-yellow-200`}>
-      <div className="h-1.5 w-full shrink-0 transition-colors duration-300" style={{ backgroundColor: config.primaryColor || '#eab308' }} />
+      {/* Top Quick Switcher Navigator when in App (hidden on landing & cms) */}
+      {isPartyCreated && !isLandingRoute && currentPath !== '/cms' && (
+        <RoleQuickSwitcher
+          currentRole={activeSession?.role}
+          currentPath={currentPath}
+          onSwitchSession={(s) => {
+            setActiveSession(s);
+            setAuthToken(`demo-token-${s.role}`);
+          }}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {!isLandingRoute && currentPath !== '/cms' && (
+        <div className="h-1 w-full shrink-0 transition-colors duration-300" style={{ backgroundColor: config.primaryColor || '#eab308' }} />
+      )}
 
       <div className={`${isDashboardActive ? 'h-full overflow-hidden' : 'flex-1'} flex flex-col`}>
-        {!activeSession && <Header />}
+        {!activeSession && isPartyCreated && !isLandingRoute && currentPath !== '/cms' && <Header />}
 
-        <div className={`flex-1 ${isDashboardActive ? 'p-0 overflow-hidden' : 'pb-4 md:pb-6'}`}>
+        <div className={`flex-1 ${isDashboardActive ? 'p-0 overflow-hidden' : isLandingRoute ? 'p-0' : 'pb-4 md:pb-6'}`}>
           {renderView()}
         </div>
       </div>
 
-      {!isDashboardActive && <Footer />}
+      {!isDashboardActive && isPartyCreated && !isLandingRoute && currentPath !== '/cms' && <Footer />}
 
       {selectedRole && (
         <OtpLoginModal
           role={selectedRole}
           onClose={() => setSelectedRole(null)}
           onSuccess={handleLoginSuccess}
-        />
-      )}
-
-      {securityModalMode && (
-        <PasscodeModal
-          mode={securityModalMode}
-          currentPasscode={currentPasscode}
-          onClose={() => setSecurityModalMode(null)}
-          onSuccess={(newPasscode) => {
-            if (securityModalMode === 'unlock') {
-              setIsPanelLocked(false);
-            } else if (securityModalMode === 'change' && newPasscode) {
-              setCurrentPasscode(newPasscode);
-            }
-            setSecurityModalMode(null);
-          }}
         />
       )}
     </div>

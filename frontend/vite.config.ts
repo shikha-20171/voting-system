@@ -19,6 +19,11 @@ export default defineConfig(() => {
           changeOrigin: true,
           secure: false,
         },
+        '/health': {
+          target: 'http://127.0.0.1:4000',
+          changeOrigin: true,
+          secure: false,
+        },
         '/socket.io': {
           target: 'http://127.0.0.1:4000',
           ws: true,

@@ -319,6 +319,494 @@ async function runIntegrationTests() {
     assert.equal(res.statusCode, 200);
   });
 
+  // 21. Polls Creation
+  let createdPollId = '';
+  let pollOptionId = '';
+  await testStep('21. POST /api/polls creates new tactical poll with options', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/polls',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        title: 'Booth Readiness Pulse Survey 2026',
+        description: 'Assessing ground worker readiness across all booths',
+        options: ['100% Ready', 'Minor Issues', 'Requires High Command Support'],
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.id);
+    createdPollId = json.data.id;
+    pollOptionId = json.data.options[0]?.id;
+  });
+
+  // 22. Polls Listing
+  await testStep('22. GET /api/polls lists published polls with vote counts', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/polls',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    const found = json.data.find((p: any) => p.id === createdPollId);
+    assert.ok(found);
+  });
+
+  // 23. Polls Voting & Duplicate Prevention
+  await testStep('23. POST /api/polls/:id/vote records vote and rejects duplicate voting', async () => {
+    // 1st vote
+    const res1 = await app.inject({
+      method: 'POST',
+      url: `/api/polls/${createdPollId}/vote`,
+      headers: { authorization: `Bearer ${inchargeToken}` },
+      payload: { optionId: pollOptionId },
+    });
+    assert.equal(res1.statusCode, 200);
+
+    // 2nd vote (should be rejected with 409 conflict)
+    const res2 = await app.inject({
+      method: 'POST',
+      url: `/api/polls/${createdPollId}/vote`,
+      headers: { authorization: `Bearer ${inchargeToken}` },
+      payload: { optionId: pollOptionId },
+    });
+    assert.equal(res2.statusCode, 409);
+  });
+
+  // 24. Voter Excel Import Template Specification
+  await testStep('24. GET /api/voters/template returns downloadable dynamic Excel template schema', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/voters/template',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data?.columns));
+    assert.ok(json.data.columns.some((c: any) => c.field === 'epicNumber'));
+  });
+
+  // 25. WhatsApp Cloud Provider Delivery
+  await testStep('25. WhatsApp Cloud Provider sends verified OTP message format', async () => {
+    const { WhatsAppCloudProvider } = await import('../lib/sms/providers/whatsapp-cloud.provider.js');
+    const provider = new WhatsAppCloudProvider();
+    const result = await provider.sendOtp('9876543210', '654321');
+    assert.equal(result.success, true);
+    assert.equal(result.provider, 'whatsapp-cloud');
+  });
+
+  // 26. Close Poll & Audit Verification
+  await testStep('26. PATCH /api/polls/:id/close closes active poll and records audit trail', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/polls/${createdPollId}/close`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.status, 'CLOSED');
+  });
+
+  // --------------------------------------------------------------------------
+  // PARTY CMS IMMUTABILITY LIFECYCLE TESTS (DRAFT -> PUBLISHED -> LOCKED)
+  // --------------------------------------------------------------------------
+  let testPartyId = '';
+  const testPartyCode = `TEST_PTY_${Date.now()}`;
+
+  // 27. Create party in DRAFT state
+  await testStep('27. POST /api/cms/parties creates party in DRAFT state (editable)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/parties',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        code: testPartyCode,
+        name: 'Democratic Progressive Front',
+        shortName: 'DPF',
+        symbolName: 'Torch',
+        primaryColor: '#6366f1',
+        secondaryColor: '#1e1b4b',
+        accentColor: '#a855f7',
+        lifecycleStatus: 'DRAFT',
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.id);
+    assert.equal(json.data.lifecycleStatus, 'DRAFT');
+    assert.equal(json.data.isLocked, false);
+    testPartyId = json.data.id;
+  });
+
+  // 28. Edit party while still in DRAFT
+  await testStep('28. PATCH /api/cms/parties/:id allows modification while in DRAFT state', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/cms/parties/${testPartyId}`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        symbolName: 'Rising Sun Torch',
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data.symbolName, 'Rising Sun Torch');
+  });
+
+  // 29. Publish & Lock party (Seals immutability)
+  await testStep('29. POST /api/cms/parties/:id/publish transitions party to LOCKED (immutable)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/cms/parties/${testPartyId}/publish`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data.lifecycleStatus, 'LOCKED');
+    assert.equal(json.data.isLocked, true);
+    assert.ok(json.data.publishedAt);
+  });
+
+  // 30. PATCH locked party is forbidden (403)
+  await testStep('30. PATCH /api/cms/parties/:id on LOCKED party returns 403 Forbidden', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/cms/parties/${testPartyId}`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        name: 'Hacked Party Name',
+        primaryColor: '#000000',
+      },
+    });
+    assert.equal(res.statusCode, 403);
+    const json = JSON.parse(res.body);
+    assert.equal(json.error?.code, 'PARTY_CONFIGURATION_LOCKED');
+  });
+
+  // 31. PUT locked party is forbidden (403)
+  await testStep('31. PUT /api/cms/parties/:id on LOCKED party returns 403 Forbidden', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/api/cms/parties/${testPartyId}`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        code: testPartyCode,
+        name: 'Overwritten Name',
+        shortName: 'OWN',
+        primaryColor: '#ffffff',
+      },
+    });
+    assert.equal(res.statusCode, 403);
+    const json = JSON.parse(res.body);
+    assert.equal(json.error?.code, 'PARTY_CONFIGURATION_LOCKED');
+  });
+
+  // 32. DELETE locked party is forbidden (403)
+  await testStep('32. DELETE /api/cms/parties/:id on LOCKED party returns 403 Forbidden', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/cms/parties/${testPartyId}`,
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 403);
+    const json = JSON.parse(res.body);
+    assert.equal(json.error?.code, 'PARTY_CONFIGURATION_LOCKED');
+  });
+
+  // 33. Verify original party data in PostgreSQL remains unchanged and audit log recorded blocked attempts
+  await testStep('33. Verify locked party remains unchanged in DB & audit trail logs blocked attempts', async () => {
+    const dbParty = await prisma.politicalParty.findUnique({
+      where: { id: testPartyId },
+    });
+    assert.ok(dbParty);
+    assert.equal(dbParty.name, 'Democratic Progressive Front', 'Name must not be modified');
+    assert.equal(dbParty.symbolName, 'Rising Sun Torch');
+    assert.equal(dbParty.isLocked, true);
+    assert.equal(dbParty.lifecycleStatus, 'LOCKED');
+
+    // Check audit logs for blocked attempts
+    const blockedAudit = await prisma.auditLog.findFirst({
+      where: {
+        entityId: testPartyId,
+        entityType: 'PoliticalParty',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    assert.ok(blockedAudit, 'Audit log must record party operations');
+  });
+
+  // --------------------------------------------------------------------------
+  // ENTERPRISE CMS APPLICATION BUILDER & GOVERNANCE TESTS
+  // --------------------------------------------------------------------------
+
+  // 34. Multi-Application List
+  await testStep('34. GET /api/cms/applications returns configured application instances', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/applications',
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.length >= 1);
+    assert.ok(json.data.some((a: any) => a.configKey === 'default'));
+  });
+
+  // 35. Roles & Jurisdiction Matrix
+  await testStep('35. GET /api/cms/roles-permissions returns enterprise RBAC & jurisdiction matrix', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/roles-permissions',
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.some((r: any) => r.role === 'SUPER_ADMIN'));
+    assert.ok(json.data.some((r: any) => r.role === 'CONSTITUENCY_INCHARGE'));
+    assert.ok(json.data.some((r: any) => r.role === 'VOTER_100_INCHARGE'));
+  });
+
+  // 36. Geography Hierarchy Tree
+  await testStep('36. GET /api/cms/geography returns full multi-tier geographic hierarchy', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/geography',
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.length >= 1);
+  });
+
+  // 37. Create Geography Unit
+  await testStep('37. POST /api/cms/geography/unit creates new Assembly Constituency entity', async () => {
+    const testAcName = `Test AC ${Date.now().toString().slice(-4)}`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/geography/unit',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        level: 'CONSTITUENCY',
+        name: testAcName,
+        code: `AC-${Date.now().toString().slice(-4)}`,
+        totalVoters: 215000,
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.id);
+    assert.equal(json.data.name, testAcName);
+  });
+
+  // 38. Excel Column Mapping Validator
+  await testStep('38. POST /api/cms/validate-excel-mapping validates dynamic column mappings', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/validate-excel-mapping',
+      payload: {
+        columnMapping: {
+          'Voter EPIC': 'epicNumber',
+          'Voter Full Name': 'name',
+          'Gender': 'gender',
+          'Age': 'age',
+          'Mandal': 'mandal',
+        },
+        sampleRows: [
+          { 'Voter EPIC': 'EPIC123', 'Voter Full Name': 'Test Voter', 'Gender': 'MALE', 'Age': 35, 'Mandal': 'Kondapi' },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.isValid, true);
+    assert.equal(json.data?.missingRequiredFields.length, 0);
+  });
+
+  // 39. Version History Snapshots
+  await testStep('39. GET /api/cms/versions returns configuration version history', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/versions',
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+  });
+
+  // 40. Create Version Checkpoint
+  await testStep('40. POST /api/cms/versions creates manual configuration checkpoint', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/versions',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        versionName: `v1.${Date.now()}`,
+        changeSummary: 'Pre-election tactical configuration lock snapshot',
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.id);
+  });
+
+  // 41. Incharge Dynamic Template Generation
+  await testStep('41. GET /api/cms/incharges/template returns dynamic level-specific schema & sample rows', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/incharges/template?level=VOTER_GROUP',
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.level, 'VOTER_GROUP');
+    assert.ok(json.data?.columns.includes('Incharge Code'));
+    assert.ok(json.data?.columns.includes('Mobile Number'));
+    assert.ok(json.data?.sampleRows.length >= 1);
+  });
+
+  // 42. Incharge Bulk Excel Import & Auto User Creation
+  await testStep('42. POST /api/cms/incharges/bulk-import validates and creates real users with hierarchy assignments', async () => {
+    const testMobile = `9848${Math.floor(100000 + Math.random() * 899999)}`;
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/incharges/bulk-import',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        level: 'BOOTH',
+        rows: [
+          {
+            'Booth / Part No': 'Booth 101',
+            'Incharge Name': 'K. Satyanarayana',
+            'Mobile Number': testMobile,
+            'Designation': 'Booth President',
+          },
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.validRows, 1);
+    assert.ok(json.data?.assignedUsers.length >= 1);
+    assert.equal(json.data?.assignedUsers[0].name, 'K. Satyanarayana');
+
+    // Verify user exists in DB
+    const dbUser = await prisma.user.findFirst({
+      where: { mobileNumber: testMobile },
+    });
+    assert.ok(dbUser);
+    assert.equal(dbUser.name, 'K. Satyanarayana');
+  });
+
+  // 43. Incharge Deactivation & Revocation
+  await testStep('43. POST /api/cms/incharges/deactivate suspends incharge and revokes hierarchy access', async () => {
+    const testUser = await prisma.user.findFirst({
+      where: { name: 'K. Satyanarayana' },
+    });
+    assert.ok(testUser);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/incharges/deactivate',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        userId: testUser.id,
+        reason: 'Post-election roster reshuffle',
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.accountStatus, 'SUSPENDED');
+
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: testUser.id },
+    });
+    assert.equal(updatedUser?.accountStatus, 'SUSPENDED');
+  });
+
+  // 44. Incharge Transfer Route
+  await testStep('44. POST /api/cms/incharges/transfer transfers incharge jurisdiction and logs audit', async () => {
+    const booth = await prisma.booth.findFirst();
+    assert.ok(booth);
+    const testMobile = `9848${Math.floor(100000 + Math.random() * 899999)}`;
+    const user = await prisma.user.create({
+      data: {
+        userCode: `INC-BOO-${testMobile.slice(-4)}`,
+        name: 'Transfer Test Cadre',
+        mobileNumber: testMobile,
+        role: RoleType.BOOTH_PRESIDENT,
+        accountStatus: 'ACTIVE',
+      },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/incharges/transfer',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        userId: user.id,
+        toUnitLevel: 'BOOTH',
+        toUnitId: booth.id,
+        reason: 'Redeployment to target polling station',
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.user?.id, user.id);
+    assert.equal(json.data?.assignment?.boothId, booth.id);
+    assert.equal(json.data?.assignment?.isActive, true);
+  });
+
+  // 45. Incharge Replacement Route
+  await testStep('45. POST /api/cms/incharges/replace replaces incharge and preserves audit history', async () => {
+    const booth = await prisma.booth.findFirst();
+    assert.ok(booth);
+    const newMobile = `9848${Math.floor(100000 + Math.random() * 899999)}`;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/cms/incharges/replace',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        unitLevel: 'BOOTH',
+        unitId: booth.id,
+        newUserName: 'Replacement Incharge Officer',
+        newMobileNumber: newMobile,
+        reason: 'Leadership rotation',
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.equal(json.data?.newUser?.name, 'Replacement Incharge Officer');
+    assert.equal(json.data?.assignment?.boothId, booth.id);
+  });
+
+  // 46. Search Existing Users
+  await testStep('46. GET /api/cms/incharges/users/search searches users by name or mobile', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/incharges/users/search?q=Replacement',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.some((u: any) => u.name.includes('Replacement')));
+  });
+
+  // 47. Incharge Assignment History
+  await testStep('47. GET /api/cms/incharges/history retrieves incharge transfer/replacement audit logs', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/cms/incharges/history',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.length >= 1);
+  });
+
   console.log(`\n========================================`);
   console.log(`Test Results: ${passedTests} Passed, ${failedTests} Failed`);
   console.log(`========================================\n`);
@@ -330,10 +818,12 @@ async function runIntegrationTests() {
 
 runIntegrationTests()
   .then(() => {
-    console.log('🎉 All 20 critical integration tests passed successfully!');
+    console.log('🎉 All 47 critical integration tests passed successfully!');
     process.exit(0);
   })
   .catch((err) => {
     console.error('Fatal test error:', err);
     process.exit(1);
   });
+
+

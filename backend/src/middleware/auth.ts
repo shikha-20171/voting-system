@@ -54,10 +54,10 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply) {
   }
 }
 
-export function optionalAuthenticate(req: FastifyRequest, _reply: FastifyReply, done: () => void) {
+export async function optionalAuthenticate(req: FastifyRequest) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return done();
+    return;
   }
 
   try {
@@ -67,7 +67,6 @@ export function optionalAuthenticate(req: FastifyRequest, _reply: FastifyReply, 
   } catch {
     // Ignore invalid token in optional mode
   }
-  done();
 }
 
 export function generateToken(payload: AuthenticatedUserPayload): string {

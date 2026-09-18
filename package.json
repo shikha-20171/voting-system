@@ -7,6 +7,9 @@
     "backend"
   ],
   "scripts": {
+    "dev": "node tools/start_dev.mjs",
+    "start": "node tools/start_dev.mjs",
+    "dev:all": "node tools/start_dev.mjs",
     "build": "npm --prefix frontend run build",
     "install:all": "npm install --workspaces",
     "dev:frontend": "npm --prefix frontend run dev",
