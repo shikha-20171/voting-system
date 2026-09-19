@@ -35,6 +35,7 @@ const SWITCHER_ITEMS: {
   { role: 'ROLES', label: 'Assign Data (Import)', shortLabel: 'Assign Data', path: '/assign-data', icon: Layers, color: '#06b6d4' },
   { role: 'ROLES', label: 'Assign Incharges', shortLabel: 'Assign Incharges', path: '/assign-incharges', icon: Users, color: '#ec4899' },
   { role: 'STATE_ADMIN', label: 'State Incharge', shortLabel: 'State', path: '/state', icon: Building, color: '#f59e0b' },
+  { role: 'ZONE_INCHARGE', label: 'Zone Coordinator', shortLabel: 'Zone', path: '/zone', icon: Building, color: '#8b5cf6' },
   { role: 'PARLIAMENT_INCHARGE', label: 'Parliament Incharge (MP)', shortLabel: 'Parliament', path: '/parliament', icon: Crown, color: '#3b82f6' },
   { role: 'CONSTITUENCY_INCHARGE', label: 'Constituency Incharge (MLA)', shortLabel: 'Constituency', path: '/constituency', icon: Crown, color: '#06b6d4' },
   { role: 'MANDAL_INCHARGE', label: 'Mandal President', shortLabel: 'Mandal', path: '/mandal', icon: Layers, color: '#10b981' },
@@ -45,6 +46,7 @@ const SWITCHER_ITEMS: {
 
 const roleLevelMap: Record<string, string> = {
   STATE_ADMIN: 'STATE',
+  ZONE_INCHARGE: 'ZONE',
   PARLIAMENT_INCHARGE: 'PARLIAMENT',
   CONSTITUENCY_INCHARGE: 'CONSTITUENCY',
   MANDAL_INCHARGE: 'MANDAL',
@@ -75,7 +77,7 @@ export default function RoleQuickSwitcher({
         }
       }
     } catch {}
-    return ['CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH'];
+    return ['STATE', 'ZONE', 'PARLIAMENT', 'CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH', 'VOTER_GROUP'];
   }, [config.activeHierarchyLevels]);
 
   const visibleItems = useMemo(() => {
@@ -134,7 +136,7 @@ export default function RoleQuickSwitcher({
             const isCurrent = (item.role === 'ROLES' && (currentPath === '/app' || currentPath === '/roles')) || item.role === currentRole;
             return (
               <button
-                key={item.role}
+                key={`${item.role}-${item.path}`}
                 onClick={() => handleSelect(item)}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold transition whitespace-nowrap cursor-pointer ${
                   isCurrent
@@ -173,7 +175,7 @@ export default function RoleQuickSwitcher({
                 const isCurrent = (item.role === 'ROLES' && (currentPath === '/app' || currentPath === '/roles')) || item.role === currentRole;
                 return (
                   <button
-                    key={item.role}
+                    key={`${item.role}-${item.path}`}
                     onClick={() => {
                       handleSelect(item);
                       setIsExpanded(false);

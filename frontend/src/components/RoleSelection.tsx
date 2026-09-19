@@ -30,7 +30,7 @@ export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, 
       } catch {}
     }
 
-    const safeLevels = enabledLevels || ['CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH'];
+    const safeLevels = enabledLevels || ['STATE', 'ZONE', 'PARLIAMENT', 'CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH', 'VOTER_GROUP'];
 
     const allRoles: (CommandRole & { levelKey: string })[] = [
       // 1. State Incharge
