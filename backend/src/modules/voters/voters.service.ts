@@ -76,19 +76,47 @@ export class VotersService {
           where.assignedInchargeId = scope.userId;
         }
       } else if (scope.role === 'BOOTH_PRESIDENT' || scope.role === 'BOOTH_INCHARGE') {
-        where.boothId = { in: Array.from(scope.accessibleBoothIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleBoothIds.size > 0) conds.push({ boothId: { in: Array.from(scope.accessibleBoothIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'VILLAGE_INCHARGE') {
-        where.villageId = { in: Array.from(scope.accessibleVillageIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleVillageIds.size > 0) conds.push({ villageId: { in: Array.from(scope.accessibleVillageIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'MANDAL_INCHARGE') {
-        where.mandalId = { in: Array.from(scope.accessibleMandalIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleMandalIds.size > 0) conds.push({ mandalId: { in: Array.from(scope.accessibleMandalIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'CONSTITUENCY_INCHARGE' || scope.role === 'VIEWER') {
-        where.constituencyId = { in: Array.from(scope.accessibleConstituencyIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleConstituencyIds.size > 0) conds.push({ constituencyId: { in: Array.from(scope.accessibleConstituencyIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'PARLIAMENT_INCHARGE') {
-        where.parliamentId = { in: Array.from(scope.accessibleParliamentIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleParliamentIds.size > 0) conds.push({ parliamentId: { in: Array.from(scope.accessibleParliamentIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'ZONE_INCHARGE') {
-        where.zoneId = { in: Array.from(scope.accessibleZoneIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleZoneIds.size > 0) conds.push({ zoneId: { in: Array.from(scope.accessibleZoneIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.role === 'STATE_ADMIN' || scope.role === 'HIGH_COMMAND') {
-        where.stateId = { in: Array.from(scope.accessibleStateIds) };
+        const conds: Prisma.VoterWhereInput[] = [];
+        if (scope.accessibleStateIds.size > 0) conds.push({ stateId: { in: Array.from(scope.accessibleStateIds) } });
+        if (scope.accessibleUnitIds.size > 0) conds.push({ unitId: { in: Array.from(scope.accessibleUnitIds) } });
+        if (conds.length === 1) Object.assign(where, conds[0]);
+        else if (conds.length > 1) where.OR = conds;
       } else if (scope.accessibleUnitIds.size > 0) {
         where.unitId = { in: Array.from(scope.accessibleUnitIds) };
       }
@@ -568,16 +596,19 @@ export class VotersService {
     const voter = await prisma.voter.findUnique({ where: { id } });
     if (!voter) throw new Error('Voter not found');
 
+    const resolvedStatus = (dto.status || (dto.locationStatus === 'MIGRATED' ? VoterLocationStatus.MIGRATED : VoterLocationStatus.LOCAL)) as VoterLocationStatus;
+    const resolvedCity = dto.destinationCity || dto.migrationCity || 'Other City';
+
     const migration = await prisma.voterMigration.create({
       data: {
         voterId: id,
-        status: dto.status,
-        destinationCity: dto.destinationCity,
+        status: resolvedStatus,
+        destinationCity: resolvedCity,
         destinationState: dto.destinationState,
-        destinationCountry: dto.destinationCountry,
+        destinationCountry: dto.destinationCountry || 'India',
         contactInCity: dto.contactInCity,
-        travelRequired: dto.travelRequired,
-        transportArranged: dto.transportArranged,
+        travelRequired: Boolean(dto.travelRequired),
+        transportArranged: Boolean(dto.transportArranged),
         returnPlannedDate: dto.returnPlannedDate ? new Date(dto.returnPlannedDate) : undefined,
         notes: dto.notes,
       },
@@ -586,8 +617,8 @@ export class VotersService {
     await prisma.voter.update({
       where: { id },
       data: {
-        voterLocationStatus: dto.status,
-        currentLocation: dto.status === VoterLocationStatus.MIGRATED ? dto.destinationCity : 'Local',
+        voterLocationStatus: resolvedStatus,
+        currentLocation: resolvedStatus === VoterLocationStatus.MIGRATED ? resolvedCity : 'Local',
       },
     });
 
@@ -600,7 +631,10 @@ export class VotersService {
       changes: dto as unknown as Prisma.InputJsonValue,
     });
 
-    return migration;
+    return {
+      ...migration,
+      migrationCity: migration.destinationCity,
+    };
   }
 
   static async getVoterHistory(id: string) {

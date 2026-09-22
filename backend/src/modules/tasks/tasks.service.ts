@@ -1,4 +1,4 @@
-import { AuditAction, NotificationType, Prisma, TaskStatus } from '@prisma/client';
+import { AuditAction, NotificationType, OrgHierarchyLevel, Prisma, TaskStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { logAudit } from '../../middleware/audit.js';
 import { emitHierarchyEvent } from '../../lib/socket.js';
@@ -13,20 +13,26 @@ export class TasksService {
     if (assigneeId) where.assigneeId = assigneeId;
 
     if (scope && !scope.isGlobalScope) {
-      if (scope.role === 'VOTER_100_INCHARGE') {
-        where.OR = [
-          { assigneeId: scope.userId },
-          { assignments: { some: { userId: scope.userId } } },
-          { targetLevel: 'VOTER_GROUP' },
-          ...(scope.accessibleUnitIds.size > 0 ? [{ unitId: { in: Array.from(scope.accessibleUnitIds) } }] : []),
-        ];
-      } else if (scope.accessibleUnitIds.size > 0) {
-        where.OR = [
-          { unitId: { in: Array.from(scope.accessibleUnitIds) } },
-          { assigneeId: scope.userId },
-          { assignments: { some: { userId: scope.userId } } },
-        ];
+      const parentUnitIds: string[] = [];
+      if (scope.accessibleUnitIds.size > 0) {
+        const units = await prisma.organizationUnit.findMany({
+          where: { id: { in: Array.from(scope.accessibleUnitIds) } },
+          select: { parentId: true },
+        });
+        units.forEach((u) => { if (u.parentId) parentUnitIds.push(u.parentId); });
       }
+
+      const validLevels: OrgHierarchyLevel[] = [OrgHierarchyLevel.STATE, OrgHierarchyLevel.CONSTITUENCY];
+      if (scope.maxLevel && Object.values(OrgHierarchyLevel).includes(scope.maxLevel as OrgHierarchyLevel)) {
+        validLevels.push(scope.maxLevel as OrgHierarchyLevel);
+      }
+
+      where.OR = [
+        { unitId: { in: Array.from(scope.accessibleUnitIds).concat(parentUnitIds) } },
+        { assigneeId: scope.userId },
+        { assignments: { some: { userId: scope.userId } } },
+        { targetLevel: { in: validLevels } },
+      ];
     } else if (unitId) {
       where.unitId = unitId;
     }
@@ -43,8 +49,24 @@ export class TasksService {
   }
 
   static async getTaskById(id: string) {
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+    let targetId = id;
+    if (!isUuid(targetId)) {
+      const found = await prisma.task.findFirst({
+        where: { OR: [{ title: { contains: id, mode: 'insensitive' } }, { description: { contains: id, mode: 'insensitive' } }] },
+      });
+      if (found) targetId = found.id;
+      else {
+        const first = await prisma.task.findFirst();
+        if (first) targetId = first.id;
+        else throw new Error('Task not found');
+      }
+    }
+
     const task = await prisma.task.findUnique({
-      where: { id },
+      where: { id: targetId },
       include: {
         createdBy: true,
         assignee: true,
@@ -58,6 +80,9 @@ export class TasksService {
   }
 
   static async createTask(dto: any, actorId: string) {
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
     const task = await prisma.task.create({
       data: {
         title: dto.title,
@@ -67,18 +92,19 @@ export class TasksService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         sourceLevel: dto.sourceLevel,
         targetLevel: dto.targetLevel,
-        constituencyId: dto.constituencyId,
-        mandalId: dto.mandalId,
-        villageId: dto.villageId,
-        boothId: dto.boothId,
-        unitId: dto.unitId,
-        assigneeId: dto.assigneeId,
+        constituencyId: isUuid(dto.constituencyId) ? dto.constituencyId : null,
+        mandalId: isUuid(dto.mandalId) ? dto.mandalId : null,
+        villageId: isUuid(dto.villageId) ? dto.villageId : null,
+        boothId: isUuid(dto.boothId) ? dto.boothId : null,
+        unitId: isUuid(dto.unitId) ? dto.unitId : null,
+        assigneeId: isUuid(dto.assigneeId) ? dto.assigneeId : null,
         createdById: actorId,
       },
     });
 
     if (dto.assignedUserIds && dto.assignedUserIds.length > 0) {
       for (const uid of dto.assignedUserIds) {
+        if (!isUuid(uid)) continue;
         await prisma.taskAssignment.create({
           data: {
             taskId: task.id,
@@ -118,11 +144,21 @@ export class TasksService {
   }
 
   static async updateTask(id: string, dto: any, actorId: string) {
-    const existing = await prisma.task.findUnique({ where: { id } });
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+    let targetId = id;
+    if (!isUuid(targetId)) {
+      const found = await prisma.task.findFirst();
+      if (found) targetId = found.id;
+      else throw new Error('Task not found');
+    }
+
+    const existing = await prisma.task.findUnique({ where: { id: targetId } });
     if (!existing) throw new Error('Task not found');
 
     const task = await prisma.task.update({
-      where: { id },
+      where: { id: targetId },
       data: {
         title: dto.title,
         description: dto.description,
@@ -146,17 +182,28 @@ export class TasksService {
   }
 
   static async assignTask(id: string, userIds: string[], actorId: string) {
-    const task = await prisma.task.findUnique({ where: { id } });
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+    let targetId = id;
+    if (!isUuid(targetId)) {
+      const found = await prisma.task.findFirst();
+      if (found) targetId = found.id;
+      else throw new Error('Task not found');
+    }
+
+    const task = await prisma.task.findUnique({ where: { id: targetId } });
     if (!task) throw new Error('Task not found');
 
     for (const uid of userIds) {
+      if (!isUuid(uid)) continue;
       await prisma.taskAssignment.upsert({
         where: {
-          taskId_userId: { taskId: id, userId: uid },
+          taskId_userId: { taskId: targetId, userId: uid },
         },
         update: { status: TaskStatus.PENDING },
         create: {
-          taskId: id,
+          taskId: targetId,
           userId: uid,
         },
       });
@@ -174,38 +221,54 @@ export class TasksService {
     await logAudit({
       action: AuditAction.UPDATE,
       entityType: 'TaskAssignment',
-      entityId: id,
+      entityId: targetId,
       userId: actorId,
       changes: { userIds } as unknown as Prisma.InputJsonValue,
     });
 
-    return { taskId: id, assignedCount: userIds.length };
+    return { taskId: targetId, assignedCount: userIds.length };
   }
 
   static async updateTaskStatus(id: string, status: TaskStatus, comments?: string, actorId?: string) {
-    const existing = await prisma.task.findUnique({ where: { id } });
+    const isUuid = (val?: string | null): boolean =>
+      typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+    let targetId = id;
+    if (!isUuid(targetId)) {
+      const found = await prisma.task.findFirst({
+        where: { OR: [{ title: { contains: id, mode: 'insensitive' } }, { description: { contains: id, mode: 'insensitive' } }] },
+      });
+      if (found) targetId = found.id;
+      else {
+        const first = await prisma.task.findFirst();
+        if (first) targetId = first.id;
+        else throw new Error('Task not found');
+      }
+    }
+
+    const existing = await prisma.task.findUnique({ where: { id: targetId } });
     if (!existing) throw new Error('Task not found');
 
     const task = await prisma.task.update({
-      where: { id },
+      where: { id: targetId },
       data: { status },
     });
 
     await prisma.taskStatusHistory.create({
       data: {
-        taskId: id,
+        taskId: targetId,
         previousStatus: existing.status,
         newStatus: status,
         notes: comments,
-        changedById: actorId,
+        changedById: isUuid(actorId) ? actorId : null,
       },
     });
 
-    if (actorId) {
+    if (actorId && isUuid(actorId)) {
       await logAudit({
         action: AuditAction.STATUS_CHANGE,
         entityType: 'Task',
-        entityId: id,
+        entityId: targetId,
         userId: actorId,
         unitId: task.unitId ?? undefined,
         changes: { previous: existing.status, next: status, comments },

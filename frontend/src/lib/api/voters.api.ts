@@ -139,17 +139,24 @@ export async function fetchVoters(params: VoterQueryParams = {}): Promise<Pagina
 
   try {
     const json = await apiFetch<any>(endpoint);
-    const rawList = Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []));
+    if (json !== undefined && json !== null) {
+      const rawList = Array.isArray(json)
+        ? json
+        : (Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []));
+      const meta = (json as any)?._meta || (json as any)?.meta || {};
+      const total = meta.total !== undefined ? Number(meta.total) : rawList.length;
+      const page = meta.page !== undefined ? Number(meta.page) : (params.page || 1);
+      const limit = meta.limit !== undefined ? Number(meta.limit) : (params.limit || 50);
+      const totalPages = meta.totalPages !== undefined ? Number(meta.totalPages) : Math.max(1, Math.ceil(total / limit));
 
-    if (rawList.length > 0) {
       return {
         items: rawList.map(normalizeVoter),
-        total: json?.meta?.total || rawList.length,
-        page: json?.meta?.page || 1,
-        limit: json?.meta?.limit || 50,
-        totalPages: json?.meta?.totalPages || 1,
-        hasNextPage: Boolean(json?.meta?.hasNextPage),
-        hasPrevPage: Boolean(json?.meta?.hasPrevPage),
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNextPage: meta.hasNextPage !== undefined ? Boolean(meta.hasNextPage) : page < totalPages,
+        hasPrevPage: meta.hasPrevPage !== undefined ? Boolean(meta.hasPrevPage) : page > 1,
       };
     }
   } catch (err) {

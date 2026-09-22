@@ -807,6 +807,60 @@ async function runIntegrationTests() {
     assert.ok(json.data.length >= 1);
   });
 
+  // 48. Live Vote Events Telemetry
+  await testStep('48. GET /api/analytics/live-votes returns real-time vote event stream', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/live-votes?limit=10',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+    assert.ok(json.data.length > 0, 'Live vote events must exist in seed');
+  });
+
+  // 49. Turnout Summary Telemetry
+  await testStep('49. GET /api/analytics/turnout-summary returns aggregated party & mandal polling telemetry', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/analytics/turnout-summary',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.totalAssigned > 0);
+    assert.ok(json.data?.partyAggregates);
+    assert.ok(typeof json.data?.turnoutPct === 'number');
+  });
+
+  // 50. Training Progress Query
+  await testStep('50. GET /api/training/progress returns cadre training completion records', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/training/progress',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(Array.isArray(json.data));
+  });
+
+  // 51. Ensure Training Assigned
+  await testStep('51. POST /api/training/ensure-assigned provisions training assignment', async () => {
+    const video = await prisma.trainingVideo.findFirst();
+    assert.ok(video, 'Training video must exist');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/training/ensure-assigned',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: { videoId: video.id },
+    });
+    assert.equal(res.statusCode, 200);
+    const json = JSON.parse(res.body);
+    assert.ok(json.data?.id);
+  });
+
   console.log(`\n========================================`);
   console.log(`Test Results: ${passedTests} Passed, ${failedTests} Failed`);
   console.log(`========================================\n`);
@@ -818,12 +872,13 @@ async function runIntegrationTests() {
 
 runIntegrationTests()
   .then(() => {
-    console.log('🎉 All 47 critical integration tests passed successfully!');
+    console.log('🎉 All integration tests passed successfully!');
     process.exit(0);
   })
   .catch((err) => {
     console.error('Fatal test error:', err);
     process.exit(1);
   });
+
 
 

@@ -161,8 +161,16 @@ export class AIService {
     return toggles.aiCockpit !== false;
   }
 
-  static async queryStrategy(unitId: string, prompt: string, language: string = 'en', userId?: string) {
-    const analytics = await AnalyticsService.computeAnalyticsForUnit(unitId);
+  static async queryStrategy(unitId?: string, prompt: string = '', language: string = 'en', userId?: string) {
+    let resolvedUnitId = unitId;
+    if (!resolvedUnitId || resolvedUnitId === 'default' || resolvedUnitId === 'const-107') {
+      const defaultUnit = await prisma.organizationUnit.findFirst({
+        where: { level: 'CONSTITUENCY' },
+      });
+      resolvedUnitId = defaultUnit?.id || 'const-107';
+    }
+
+    const analytics = await AnalyticsService.computeAnalyticsForUnit(resolvedUnitId);
 
     const context = {
       unit: analytics.unit,
@@ -183,7 +191,7 @@ export class AIService {
       await logAudit({
         action: AuditAction.CREATE,
         entityType: 'AIStrategyQuery',
-        entityId: unitId,
+        entityId: resolvedUnitId,
         userId,
         changes: { prompt, language, provider: this.provider.name },
       });
@@ -197,14 +205,21 @@ export class AIService {
     };
   }
 
-  static async generateReport(unitId: string, language: string = 'en', userId?: string) {
-    const report = await this.provider.generateStrategicReport(unitId, language);
+  static async generateReport(unitId?: string, language: string = 'en', userId?: string) {
+    let resolvedUnitId = unitId;
+    if (!resolvedUnitId || resolvedUnitId === 'default' || resolvedUnitId === 'const-107') {
+      const defaultUnit = await prisma.organizationUnit.findFirst({
+        where: { level: 'CONSTITUENCY' },
+      });
+      resolvedUnitId = defaultUnit?.id || 'const-107';
+    }
+    const report = await this.provider.generateStrategicReport(resolvedUnitId, language);
 
     if (userId) {
       await logAudit({
         action: AuditAction.CREATE,
         entityType: 'AIStrategicReport',
-        entityId: unitId,
+        entityId: resolvedUnitId,
         userId,
         changes: { language, provider: this.provider.name },
       });

@@ -58,6 +58,21 @@ export function buildApp(): FastifyInstance {
     timeWindow: '1 minute',
   });
 
+  // Support empty JSON bodies gracefully without throwing FST_ERR_CTP_EMPTY_JSON_BODY
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    try {
+      if (!body || (typeof body === 'string' && body.trim() === '')) {
+        done(null, {});
+        return;
+      }
+      const json = JSON.parse(body as string);
+      done(null, json);
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   // Health Check Endpoints
   const healthHandler = async (_req: any, reply: any) => {
     let dbStatus = 'healthy';

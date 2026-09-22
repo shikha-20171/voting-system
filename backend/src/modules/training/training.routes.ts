@@ -57,5 +57,9 @@ export async function trainingRoutes(fastify: FastifyInstance) {
     TrainingController.updateProgress,
   );
 
+  fastify.get('/progress', TrainingController.getProgress);
+  fastify.post('/ensure-assigned', TrainingController.ensureAssigned);
+
   fastify.get('/analytics', TrainingController.getAnalytics);
 }
+

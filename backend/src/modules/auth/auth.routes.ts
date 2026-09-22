@@ -11,7 +11,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     {
       config: {
         rateLimit: {
-          max: process.env.NODE_ENV === 'test' ? 100 : 10,
+          max: process.env.NODE_ENV === 'production' ? 10 : 100,
           timeWindow: '1 minute',
         },
       },
@@ -26,7 +26,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     {
       config: {
         rateLimit: {
-          max: process.env.NODE_ENV === 'test' ? 100 : 20,
+          max: process.env.NODE_ENV === 'production' ? 20 : 100,
           timeWindow: '1 minute',
         },
       },
