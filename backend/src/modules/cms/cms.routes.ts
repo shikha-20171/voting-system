@@ -149,8 +149,9 @@ export async function cmsRoutes(fastify: FastifyInstance) {
   // PUBLIC / APP CONFIG ENDPOINT (Consumed dynamically by Frontend)
   // --------------------------------------------------------------------------
   fastify.get('/config', { preHandler: [optionalAuthenticate] }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const orgId = (req as any).user?.organisationId || (req.headers['x-organisation-id'] as string);
-    const tenantCode = req.headers['x-tenant-code'] as string;
+    const query = (req.query || {}) as { tenant?: string; appId?: string; configKey?: string };
+    const orgId = (req as any).user?.organisationId || (req.headers['x-organisation-id'] as string) || query?.appId;
+    const tenantCode = (req.headers['x-tenant-code'] as string) || query?.tenant || query?.configKey;
     const bundle = await loadCmsBundle({ organisationId: orgId, configKey: tenantCode });
     return reply.send(
       successResponse({
@@ -712,11 +713,13 @@ export async function cmsRoutes(fastify: FastifyInstance) {
       return reply.status(201).send(
         successResponse({
           application: {
+            id: updatedConfig.id,
+            configKey: updatedConfig.configKey,
             appKey: body.appKey || `app_${Date.now()}`,
             tenantCode: org.code,
             organisationId: org.id,
-            appName: body.appName,
-            organisationName: body.organisationName,
+            appName: body.appName || body.headerTitle,
+            organisationName: body.organisationName || body.appName,
             headerTitle: body.headerTitle || body.appName,
             slogan: body.slogan,
             logoUrl: body.logoUrl,

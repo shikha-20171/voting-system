@@ -184,7 +184,7 @@ export async function createApplication(formData: any): Promise<AppInstance> {
 
   const backendPayload = {
     appName,
-    organisationName: partyName,
+    organisationName: appName,
     headerTitle: appName,
     slogan: formData.description || `Platform tenant for ${appName}`,
     primaryColor: formData.primaryColor || '#F59E0B',
@@ -224,7 +224,7 @@ export async function createApplication(formData: any): Promise<AppInstance> {
   const app = res?.application || res;
   return {
     id: app.id || app.appKey || `app-${Date.now()}`,
-    name: app.appName || appName,
+    name: app.appName || app.headerTitle || appName,
     party: partyName,
     partyCode: partyCode,
     leaderName: formData.leaderName || 'Party Candidate',
@@ -236,10 +236,15 @@ export async function createApplication(formData: any): Promise<AppInstance> {
     totalVoters: typeof app.totalVoters === 'number' ? app.totalVoters : 0,
     turnoutPercent: typeof app.turnoutPercent === 'number' ? app.turnoutPercent : 0,
     isActive: true,
-    isDefault: false,
+    isDefault: app.isDefault || false,
     createdAt: new Date().toLocaleDateString('en-IN'),
     activeHierarchyLevels: app.activeHierarchyLevels || levels,
   };
+}
+
+export async function setDefaultApplication(id: string): Promise<boolean> {
+  await request(`/applications/${id}/set-default`, { method: 'POST' });
+  return true;
 }
 
 export async function deleteApplication(id: string): Promise<boolean> {

@@ -151,7 +151,8 @@ export default function App() {
     const created = await createApplication(formData);
     const refreshed = await fetchApplications();
     setApps(refreshed);
-    handleSelectApp(created);
+    const found = refreshed.find((a) => a.id === created.id || a.partyCode === created.partyCode || a.name === created.name) || created;
+    handleSelectApp(found);
   };
 
   const handleDeleteApp = async (id: string) => {
@@ -174,12 +175,18 @@ export default function App() {
     }
   };
 
-  const handleSetDefault = (id: string) => {
+  const handleSetDefault = async (id: string) => {
     localStorage.setItem('pc_admin_default_tenant_id', id);
     localStorage.setItem('pc_admin_active_tenant_id', id);
-    const updated = apps.map((a) => ({ ...a, isDefault: a.id === id }));
-    setApps(updated);
-    const target = updated.find((a) => a.id === id) || null;
+    try {
+      const { setDefaultApplication } = await import('./lib/api');
+      await setDefaultApplication(id);
+    } catch (err) {
+      console.warn('Backend set-default notice:', err);
+    }
+    const refreshed = await fetchApplications();
+    setApps(refreshed);
+    const target = refreshed.find((a) => a.id === id) || null;
     setSelectedApp(target);
   };
 
@@ -246,13 +253,25 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-400">Active Tenant Scope:</span>
-              <span className="px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-xs font-black text-white flex items-center gap-1.5">
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: selectedApp?.primaryColor || '#F59E0B' }}
-                />
-                {selectedApp?.name || 'All Applications'}
-              </span>
+              <div className="relative">
+                <select
+                  value={selectedApp?.id || ''}
+                  onChange={(e) => {
+                    const chosen = apps.find((a) => a.id === e.target.value);
+                    if (chosen) handleSelectApp(chosen);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-black text-white outline-none cursor-pointer hover:border-amber-400/50 transition appearance-none pr-7"
+                >
+                  {apps.map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {app.name} ({app.partyCode}) {app.isDefault ? '• Default' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">
+                  ▼
+                </div>
+              </div>
             </div>
           </div>
 
@@ -263,12 +282,13 @@ export default function App() {
             </div>
 
             <a
-              href="http://localhost:3000"
+              href={selectedApp?.id ? `http://localhost:3000/?appId=${encodeURIComponent(selectedApp.id)}&tenant=${encodeURIComponent(selectedApp.partyCode)}` : 'http://localhost:3000'}
               target="_blank"
               rel="noopener noreferrer"
               className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-400/20"
+              title="Launch selected party application in user portal"
             >
-              <span>Party App (Port 3000)</span>
+              <span>Launch App (Port 3000)</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>

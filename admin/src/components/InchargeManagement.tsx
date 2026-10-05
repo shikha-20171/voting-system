@@ -197,7 +197,7 @@ export default function InchargeManagement({
         </div>
 
         <div className="flex items-center gap-1.5 self-stretch sm:self-auto overflow-x-auto pb-1 sm:pb-0">
-          {['ALL', 'CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH', 'VOTER_GROUP'].map((lvl) => (
+          {['ALL', ...(currentApp?.activeHierarchyLevels || ['CONSTITUENCY', 'MANDAL', 'VILLAGE', 'BOOTH', 'VOTER_GROUP'])].map((lvl) => (
             <button
               key={lvl}
               onClick={() => {

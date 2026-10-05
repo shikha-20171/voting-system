@@ -331,16 +331,19 @@ export class ApplicationsService {
             })
           : 0;
 
+        const effectiveAppName = c.headerTitle || c.organisationName || 'Party Connect';
         return {
           id: c.id,
           configKey: c.configKey,
-          appName: c.organisationName,
+          appName: effectiveAppName,
+          organisationName: c.organisationName,
+          headerTitle: c.headerTitle || c.organisationName,
           activePartyCode: c.activePartyCode || activeParty?.code || 'APP',
           candidateName: c.candidateName,
           primaryColor: c.primaryColor || activeParty?.primaryColor,
           secondaryColor: c.secondaryColor || activeParty?.secondaryColor,
           accentColor: c.accentColor || activeParty?.accentColor,
-          activeHierarchyLevels: c.activeHierarchyLevels,
+          activeHierarchyLevels: c.activeHierarchyLevels || ['VOTER_GROUP', 'BOOTH', 'VILLAGE', 'MANDAL', 'CONSTITUENCY'],
           stateName: c.stateName,
           appScope: effectiveScope,
           parliamentName: c.parliamentName,
@@ -360,6 +363,60 @@ export class ApplicationsService {
     );
 
     return appsList;
+  }
+
+  /**
+   * Set an application as the global active default tenant.
+   */
+  static async setDefaultApplication(idOrKey: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrKey);
+    const targetConfig = await prisma.cMSConfiguration.findFirst({
+      where: {
+        OR: [
+          ...(isUuid ? [{ id: idOrKey }, { organisationId: idOrKey }] : []),
+          { configKey: idOrKey },
+          { organisationName: { equals: idOrKey, mode: 'insensitive' } },
+        ],
+      },
+      include: { organisation: true },
+    });
+
+    if (!targetConfig) {
+      throw new Error(`Application '${idOrKey}' not found`);
+    }
+
+    if (targetConfig.configKey === 'default') {
+      return targetConfig;
+    }
+
+    const currentDefault = await prisma.cMSConfiguration.findUnique({
+      where: { configKey: 'default' },
+      include: { organisation: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      if (currentDefault && currentDefault.id !== targetConfig.id) {
+        const archivedBase = (currentDefault.organisation?.code || `app-archived-${Date.now().toString().slice(-4)}`).toLowerCase();
+        let safeArchivedKey = archivedBase;
+        const collision = await tx.cMSConfiguration.findUnique({ where: { configKey: safeArchivedKey } });
+        if (collision) safeArchivedKey = `${archivedBase}-${Date.now().toString().slice(-4)}`;
+
+        await tx.cMSConfiguration.update({
+          where: { id: currentDefault.id },
+          data: { configKey: safeArchivedKey },
+        });
+      }
+
+      await tx.cMSConfiguration.update({
+        where: { id: targetConfig.id },
+        data: { configKey: 'default' },
+      });
+    });
+
+    return await prisma.cMSConfiguration.findUnique({
+      where: { configKey: 'default' },
+      include: { organisation: true },
+    });
   }
 
   /**

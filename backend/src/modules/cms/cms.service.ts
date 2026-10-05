@@ -242,9 +242,18 @@ export async function persistCmsConfig(input: CmsConfigInput) {
 export async function loadCmsBundle(options?: { organisationId?: string; configKey?: string }) {
   let config: any = null;
 
+  const isUuid = (val?: string) => Boolean(val && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val));
+
   if (options?.organisationId) {
     config = await prisma.cMSConfiguration.findFirst({
-      where: { organisationId: options.organisationId },
+      where: {
+        OR: [
+          ...(isUuid(options.organisationId) ? [{ id: options.organisationId }, { organisationId: options.organisationId }] : []),
+          { configKey: options.organisationId.toLowerCase() },
+          { activePartyCode: { equals: options.organisationId, mode: 'insensitive' } },
+          { organisationName: { equals: options.organisationId, mode: 'insensitive' } },
+        ],
+      },
       include: { organisation: true },
       orderBy: { updatedAt: 'desc' },
     });
@@ -252,7 +261,16 @@ export async function loadCmsBundle(options?: { organisationId?: string; configK
 
   if (!config && options?.configKey) {
     config = await prisma.cMSConfiguration.findFirst({
-      where: { configKey: options.configKey.toLowerCase() },
+      where: {
+        OR: [
+          { configKey: options.configKey.toLowerCase() },
+          ...(isUuid(options.configKey) ? [{ id: options.configKey }] : []),
+          { activePartyCode: { equals: options.configKey, mode: 'insensitive' } },
+          { organisation: { code: { equals: options.configKey, mode: 'insensitive' } } },
+          { organisationName: { equals: options.configKey, mode: 'insensitive' } },
+          { headerTitle: { equals: options.configKey, mode: 'insensitive' } },
+        ],
+      },
       include: { organisation: true },
     });
   }

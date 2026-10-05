@@ -118,6 +118,7 @@ export default function ApplicationManagement({
       const appName = formData.name;
       const partyCode = formData.partyCode;
       setJustCreatedId(partyCode);
+      setCurrentPage(1);
       setModalOpen(false);
       notify.success(`Party tenant "${appName}" (${partyCode}) has been successfully provisioned in PostgreSQL!`, 'Tenant Provisioned');
       setSuccessBanner(`Party tenant "${appName}" (${partyCode}) has been successfully provisioned in PostgreSQL! Enabled tiers: ${formData.activeHierarchyLevels.join(' → ')}.`);
@@ -213,7 +214,7 @@ export default function ApplicationManagement({
                   </div>
 
                   <div className="flex items-center gap-1.5">
-                    {justCreatedId === app.partyCode && (
+                    {(justCreatedId === app.partyCode || justCreatedId === app.id) && (
                       <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-400/20 text-emerald-300 border border-emerald-400/40 animate-pulse">
                         NEWLY CREATED
                       </span>
@@ -262,13 +263,25 @@ export default function ApplicationManagement({
                 </button>
 
                 <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const launchUrl = `http://localhost:3000/?appId=${encodeURIComponent(app.id)}&tenant=${encodeURIComponent(app.partyCode)}`;
+                      navigator.clipboard.writeText(launchUrl);
+                      notify.success(`Launch URL copied for "${app.name}"`, 'URL Copied');
+                    }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                    title="Copy direct launch URL"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
                   <a
-                    href="http://localhost:3000"
+                    href={`http://localhost:3000/?appId=${encodeURIComponent(app.id)}&tenant=${encodeURIComponent(app.partyCode)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition"
-                    title="Launch this Party App"
+                    title={`Launch "${app.name}" with its configured role modules`}
                   >
                     <ExternalLink className="w-4 h-4" />
                   </a>

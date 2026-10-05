@@ -19,6 +19,7 @@ import {
   fetchConstituenciesApi,
   APPLICATION_TEMPLATES,
   ApplicationTemplate,
+  fetchApplicationsListApi,
 } from '../lib/cms';
 
 interface CmsContextValue {
@@ -28,6 +29,8 @@ interface CmsContextValue {
   partyThemes: Record<VoterPreference, PartyTheme>;
   announcements: any[];
   constituencies: ConstituencyItem[];
+  applications: any[];
+  activeApplicationId: string | null;
   isReady: boolean;
   applyPreset: (presetId: string) => Promise<void>;
   applyTemplate: (templateId: string) => Promise<void>;
@@ -37,6 +40,7 @@ interface CmsContextValue {
   updateFeatureToggles: (toggles: Partial<CmsConfig['featureToggles']>) => Promise<void>;
   updateHierarchyLabels: (labels: Record<string, string>) => Promise<void>;
   reloadConfig: () => Promise<void>;
+  switchApplication: (appIdOrKey: string) => Promise<void>;
   t: (hierarchyLevel: string, fallback?: string) => string;
   isFeatureEnabled: (feature: keyof CmsConfig['featureToggles']) => boolean;
 }
@@ -48,6 +52,8 @@ const CmsContext = createContext<CmsContextValue>({
   partyThemes: DEFAULT_PARTY_THEMES,
   announcements: [],
   constituencies: DEFAULT_CONFIG.constituencies,
+  applications: [],
+  activeApplicationId: null,
   isReady: false,
   applyPreset: async () => {},
   applyTemplate: async () => {},
@@ -57,6 +63,7 @@ const CmsContext = createContext<CmsContextValue>({
   updateFeatureToggles: async () => {},
   updateHierarchyLabels: async () => {},
   reloadConfig: async () => {},
+  switchApplication: async () => {},
   t: (k, fb) => fb || k,
   isFeatureEnabled: () => true,
 });
@@ -90,12 +97,29 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
   const [parties, setParties] = useState<CmsParty[]>([]);
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [constituencies, setConstituencies] = useState<ConstituencyItem[]>(config.constituencies || DEFAULT_CONFIG.constituencies);
+  const [applications, setApplications] = useState<any[]>([]);
+  const [activeApplicationId, setActiveApplicationId] = useState<string | null>(() => typeof window !== 'undefined' ? localStorage.getItem('kdp_active_app_id') : null);
   const [isReady, setIsReady] = useState(false);
 
-  const loadData = async () => {
+  const loadData = async (targetAppId?: string) => {
     try {
-      const data = await fetchCmsConfig();
-      const constList = await fetchConstituenciesApi();
+      const activeId = targetAppId || (typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('appId') || new URLSearchParams(window.location.search).get('tenant') || localStorage.getItem('kdp_active_app_id')) : undefined);
+      const [data, constList, appsList] = await Promise.all([
+        fetchCmsConfig(activeId || undefined),
+        fetchConstituenciesApi(),
+        fetchApplicationsListApi(),
+      ]);
+
+      if (appsList && appsList.length > 0) {
+        setApplications(appsList);
+      }
+
+      if (activeId) {
+        setActiveApplicationId(activeId);
+        if (typeof window !== 'undefined') localStorage.setItem('kdp_active_app_id', activeId);
+      } else if (data?.config?.id) {
+        setActiveApplicationId(data.config.id);
+      }
 
       const mergedLabels = {
         ...DEFAULT_CONFIG.hierarchyLabels,
@@ -131,6 +155,15 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setIsReady(true);
     }
+  };
+
+  const switchApplication = async (appIdOrKey: string) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('kdp_active_app_id', appIdOrKey);
+      localStorage.setItem('kdp_active_tenant_id', appIdOrKey);
+    }
+    setActiveApplicationId(appIdOrKey);
+    await loadData(appIdOrKey);
   };
 
   useEffect(() => {
@@ -295,6 +328,8 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         partyThemes,
         announcements,
         constituencies,
+        applications,
+        activeApplicationId,
         isReady,
         applyPreset,
         applyTemplate,
@@ -304,6 +339,7 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
         updateFeatureToggles,
         updateHierarchyLabels,
         reloadConfig,
+        switchApplication,
         t,
         isFeatureEnabled,
       }}

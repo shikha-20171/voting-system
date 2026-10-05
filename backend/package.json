@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "test": "tsx src/tests/integration.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -29,15 +29,15 @@
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "xlsx": "^0.18.5",
-    "zod": "^4.4.3"
-  },
-  "devDependencies": {
+    "zod": "^4.4.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.14.0",
     "prisma": "^6.14.0",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

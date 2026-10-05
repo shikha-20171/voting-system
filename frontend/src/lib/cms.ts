@@ -35,6 +35,8 @@ export interface ApplicationTemplate {
 }
 
 export interface CmsConfig {
+  id?: string;
+  configKey?: string;
   organisationName: string;
   stateName: string;
   defaultLanguage: string;
@@ -374,9 +376,41 @@ export function applyThemeVariables(primaryColor: string, secondaryColor?: strin
   root.style.setProperty('--party-glow', `${primaryColor}4d`);
 }
 
-export async function fetchCmsConfig(): Promise<{ config: CmsConfig; parties: CmsParty[]; announcements: any[] }> {
+export async function fetchApplicationsListApi(): Promise<any[]> {
   try {
-    const payload = await apiFetch<any>('/api/cms/config');
+    const payload = await apiFetch<any[]>('/api/applications');
+    const list = Array.isArray(payload) ? payload : (payload as any)?.data || [];
+    return Array.isArray(list) ? list : [];
+  } catch (err) {
+    console.warn('[CMS] Failed to fetch applications list:', err);
+    return [];
+  }
+}
+
+export async function fetchCmsConfig(targetAppIdOrKey?: string): Promise<{ config: CmsConfig; parties: CmsParty[]; announcements: any[] }> {
+  try {
+    let tenantParam = targetAppIdOrKey;
+    if (!tenantParam && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashPart = window.location.hash.includes('?') ? window.location.hash.split('?')[1] : '';
+      const hashParams = new URLSearchParams(hashPart);
+      tenantParam =
+        urlParams.get('appId') ||
+        urlParams.get('tenant') ||
+        hashParams.get('appId') ||
+        hashParams.get('tenant') ||
+        localStorage.getItem('kdp_active_app_id') ||
+        localStorage.getItem('kdp_active_tenant_id') ||
+        undefined;
+    }
+
+    const endpoint = tenantParam
+      ? `/api/cms/config?tenant=${encodeURIComponent(tenantParam)}&appId=${encodeURIComponent(tenantParam)}`
+      : '/api/cms/config';
+
+    const payload = await apiFetch<any>(endpoint, {
+      headers: tenantParam ? { 'x-tenant-code': tenantParam, 'x-organisation-id': tenantParam } : undefined,
+    });
     const rawConfig = payload?.config || payload || {};
     const parties = (payload?.parties as CmsParty[]) || [];
     const announcements = payload?.announcements || [];

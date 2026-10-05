@@ -34,6 +34,13 @@ export async function applicationsRoutes(fastify: FastifyInstance) {
     return reply.status(res.statusCode).send(JSON.parse(res.payload));
   });
   fastify.get('/:applicationId/configuration', { preHandler: [authenticate] }, ApplicationsController.getConfiguration);
+  fastify.post(
+    '/:id/set-default',
+    {
+      preHandler: [authenticate, requireRoles(RoleType.SUPER_ADMIN, RoleType.HIGH_COMMAND, RoleType.STATE_ADMIN)],
+    },
+    ApplicationsController.setDefaultApplication,
+  );
   fastify.delete(
     '/:id',
     {
