@@ -2,8 +2,7 @@ import React, { useMemo } from 'react';
 import { CommandRole, RoleType } from '../types';
 import RoleCard from './RoleCard';
 import { useCms } from '../context/CmsContext';
-import { Layers, ChevronDown, Check, Zap } from 'lucide-react';
-import { getDemoAccountsForRole } from '../lib/demoAccounts';
+import { Layers, ChevronDown, Check } from 'lucide-react';
 
 interface RoleSelectionProps {
   onSelectRole: (role: CommandRole) => void;
@@ -208,48 +207,6 @@ export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, 
           <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
             Choose your assigned command module to access role-specific intelligence, field operations, and reporting for <span className="font-bold text-slate-700">{config.organisationName}</span>.
           </p>
-        </div>
-      </div>
-
-      {/* Quick Demo Access Bar */}
-      <div className="rounded-3xl border border-amber-200/90 bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-emerald-500/10 p-4 sm:p-5 shadow-xs">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 mb-3.5">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-500 text-slate-950 font-black shrink-0">
-              <Zap size={16} className="fill-slate-950" />
-            </span>
-            <div>
-              <h3 className="text-sm font-black text-slate-900 tracking-tight">
-                Quick Demo Accounts (All Roles Pre-Configured)
-              </h3>
-              <p className="text-xs text-slate-600">
-                Click any role pill below to open login with instant 1-click access and pre-seeded field data.
-              </p>
-            </div>
-          </div>
-          <span className="text-[11px] font-bold text-amber-900 bg-amber-100/90 px-3 py-1 rounded-full shrink-0 border border-amber-200">
-            {activeRoles.length} Roles Active
-          </span>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {activeRoles.map((role) => {
-            const demoAcc = getDemoAccountsForRole(role.id)[0];
-            return (
-              <button
-                key={role.id}
-                onClick={() => onSelectRole(role)}
-                className="group flex items-center gap-2 rounded-2xl border border-slate-200/90 bg-white/90 px-3 py-2 text-xs font-bold text-slate-800 shadow-2xs hover:border-amber-400 hover:bg-white hover:shadow-sm transition"
-              >
-                <span className="h-2 w-2 rounded-full bg-emerald-500 group-hover:scale-125 transition" />
-                <span className="font-extrabold text-slate-900">{role.name}:</span>
-                <span className="text-slate-600 font-medium">{demoAcc?.name || 'Demo'}</span>
-                <span className="font-mono text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                  {demoAcc?.mobile.slice(-4)}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
