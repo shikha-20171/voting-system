@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { CommandRole, RoleType } from '../types';
 import RoleCard from './RoleCard';
 import { useCms } from '../context/CmsContext';
-import { Layers, ChevronDown, Check } from 'lucide-react';
+import { Layers, Check } from 'lucide-react';
 
 interface RoleSelectionProps {
   onSelectRole: (role: CommandRole) => void;
@@ -12,7 +12,7 @@ interface RoleSelectionProps {
 }
 
 export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, isPanelLocked }: RoleSelectionProps) {
-  const { config, t, applications, switchApplication, activeApplicationId } = useCms();
+  const { config, t } = useCms();
 
   const enabledTiers = useMemo(() => {
     if (Array.isArray(config.activeHierarchyLevels) && config.activeHierarchyLevels.length > 0) {
@@ -154,26 +154,9 @@ export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, 
             </div>
 
             <div className="flex items-center gap-2 mt-0.5">
-              {applications.length > 1 ? (
-                <div className="relative inline-block">
-                  <select
-                    value={activeApplicationId || config.organisationName || ''}
-                    onChange={(e) => switchApplication(e.target.value)}
-                    className="text-base sm:text-lg font-black text-slate-900 bg-transparent pr-8 cursor-pointer outline-none border-b-2 border-dashed border-amber-400/80 hover:border-amber-500 transition appearance-none"
-                  >
-                    {applications.map((app) => (
-                      <option key={app.id || app.configKey} value={app.id || app.configKey}>
-                        {app.appName || app.headerTitle || app.name} ({app.partyCode || app.activePartyCode || 'APP'}) {app.isDefault ? '• Default' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="w-4 h-4 text-slate-500 absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              ) : (
-                <h3 className="text-base sm:text-lg font-black text-slate-900">
-                  {config.organisationName || config.headerTitle || 'Kondapi Connect'}
-                </h3>
-              )}
+              <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                {config.organisationName || config.headerTitle || 'Kondapi Connect'}
+              </h3>
             </div>
 
             <p className="text-xs text-slate-500 font-medium mt-1">
