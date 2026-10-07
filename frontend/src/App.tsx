@@ -25,6 +25,10 @@ const SuperAdminDashboard = lazy(() => import('./components/SuperAdminDashboard'
 const StateDashboard = lazy(() => import('./components/StateDashboard'));
 const ZoneParliamentDashboard = lazy(() => import('./components/ZoneParliamentDashboard'));
 const DashboardPlaceholders = lazy(() => import('./components/DashboardPlaceholders'));
+const PlatformAdminPortal = lazy(() => import('./components/PlatformAdminPortal'));
+const AssignDataModule = lazy(() => import('./components/cms/AssignDataModule'));
+const AssignInchargesModule = lazy(() => import('./components/cms/AssignInchargesModule'));
+const ApprovalManagementModule = lazy(() => import('./components/cms/ApprovalManagementModule'));
 import {
   clearAuthToken,
   getAuthToken,
@@ -399,8 +403,58 @@ export default function App({ initialPath }: { initialPath?: string } = {}) {
       );
     }
 
-    // 2. Dedicated Platform Admin Panel Hand-off
-    if (isCmsRoute) {
+    // 2. CMS Platform Admin & Assignment routes
+    if (currentPath === '/platform-admin' || currentPath === '/admin') {
+      return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400 font-bold">Loading Platform Admin...</div>}>
+          <PlatformAdminPortal />
+        </Suspense>
+      );
+    }
+
+    if (currentPath === '/approvals') {
+      return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400 font-bold">Loading Approvals...</div>}>
+          <ApprovalManagementModule
+            onBack={() => {
+              window.location.hash = '/platform-admin';
+            }}
+          />
+        </Suspense>
+      );
+    }
+
+    if (currentPath === '/assign-data') {
+      return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400 font-bold">Loading Data Assignment...</div>}>
+          <AssignDataModule
+            onNavigateToIncharges={() => {
+              window.location.hash = '/assign-incharges';
+            }}
+            onClose={() => {
+              window.location.hash = '/platform-admin';
+            }}
+          />
+        </Suspense>
+      );
+    }
+
+    if (currentPath === '/assign-incharges') {
+      return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-slate-400 font-bold">Loading Incharge Assignment...</div>}>
+          <AssignInchargesModule
+            onNavigateToData={() => {
+              window.location.hash = '/assign-data';
+            }}
+            onClose={() => {
+              window.location.hash = '/platform-admin';
+            }}
+          />
+        </Suspense>
+      );
+    }
+
+    if (currentPath === '/cms') {
       return (
         <AdminPanelHandoff
           onReturnToPartyApp={() => {

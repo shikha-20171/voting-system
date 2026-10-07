@@ -55,9 +55,9 @@ export default function InchargeManagement({
 
   const filteredIncharges = incharges.filter((inc) => {
     const matchSearch =
-      inc.name.toLowerCase().includes(search.toLowerCase()) ||
-      inc.phone.includes(search) ||
-      inc.jurisdiction.toLowerCase().includes(search.toLowerCase());
+      (inc.name || '').toLowerCase().includes(search.toLowerCase()) ||
+      (inc.phone || '').includes(search) ||
+      (inc.jurisdiction || '').toLowerCase().includes(search.toLowerCase());
     const matchLevel = filterLevel === 'ALL' || inc.level === filterLevel;
     return matchSearch && matchLevel;
   });

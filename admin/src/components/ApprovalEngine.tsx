@@ -55,10 +55,10 @@ export default function ApprovalEngine({
     const matchType = activeTab === 'ALL' || item.type === activeTab;
     const matchStatus = statusFilter === 'ALL' || item.status === statusFilter;
     const matchSearch =
-      item.title.toLowerCase().includes(search.toLowerCase()) ||
-      item.applicantName.toLowerCase().includes(search.toLowerCase()) ||
-      item.jurisdiction.toLowerCase().includes(search.toLowerCase()) ||
-      item.applicantPhone.includes(search);
+      (item.title || '').toLowerCase().includes(search.toLowerCase()) ||
+      (item.applicantName || '').toLowerCase().includes(search.toLowerCase()) ||
+      (item.jurisdiction || '').toLowerCase().includes(search.toLowerCase()) ||
+      (item.applicantPhone || '').includes(search);
     return matchType && matchStatus && matchSearch;
   });
 

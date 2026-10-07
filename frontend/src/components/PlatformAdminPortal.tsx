@@ -29,6 +29,7 @@ import {
   Zap,
   Database,
   ClipboardCheck,
+  ExternalLink,
 } from 'lucide-react';
 import { useCms } from '../context/CmsContext';
 import { fetchCmsApplications, fetchApplicationSummary, type ApplicationSummaryKpis } from '../lib/api/applications.api';
@@ -630,6 +631,14 @@ export default function PlatformAdminPortal() {
             >
               <ClipboardCheck className="w-3.5 h-3.5" />
               <span>Approval Queue</span>
+            </button>
+            <button
+              onClick={() => window.open('http://localhost:3001', '_blank', 'noopener,noreferrer')}
+              className="px-3.5 py-1.5 rounded-xl text-xs md:text-sm bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-400/30 transition-all flex items-center gap-1.5 font-bold cursor-pointer shadow-xs"
+              title="Launch dedicated Standalone CMS & Admin Console on Port 3001"
+            >
+              <span>Standalone Console (Port 3001)</span>
+              <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
             </button>
           </div>
         </div>

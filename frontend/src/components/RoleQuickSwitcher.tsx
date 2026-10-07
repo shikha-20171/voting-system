@@ -42,7 +42,8 @@ interface SwitcherItem {
 const SWITCHER_ITEMS: SwitcherItem[] = [
   // System & Management
   { role: 'ROLES', category: 'system', label: 'Role Command Selection', shortLabel: 'Role Center', subtitle: 'Universal Role Gateway', path: '/roles', icon: LayoutGrid, color: '#10b981' },
-  { role: 'ROLES', category: 'system', label: 'CMS & Platform Admin (Port 3001)', shortLabel: 'Admin Panel', subtitle: 'Dedicated CMS Console', path: 'http://localhost:3001', icon: Settings, color: '#f59e0b', isExternal: true },
+  { role: 'ROLES', category: 'system', label: 'Platform Admin Portal (In-App)', shortLabel: 'Platform Admin', subtitle: 'Constituency & App Management', path: '/platform-admin', icon: Layers, color: '#06b6d4' },
+  { role: 'ROLES', category: 'system', label: 'CMS & Standalone Admin (Port 3001)', shortLabel: 'Admin Panel', subtitle: 'Dedicated CMS Console', path: 'http://localhost:3001', icon: Settings, color: '#f59e0b', isExternal: true },
 
   // Apex Command
   { role: 'STATE_ADMIN', levelKey: 'STATE', category: 'apex', label: 'State Incharge (Apex)', shortLabel: 'State', subtitle: 'Statewide War Room', path: '/state', icon: Building, color: '#f59e0b' },
@@ -127,6 +128,10 @@ export default function RoleQuickSwitcher({
   const handleSelect = (item: SwitcherItem) => {
     setIsDropdownOpen(false);
     if (item.path) {
+      if (item.isExternal || item.path.startsWith('http://') || item.path.startsWith('https://')) {
+        window.open(item.path, '_blank', 'noopener,noreferrer');
+        return;
+      }
       window.location.hash = item.path;
     }
   };

@@ -13,6 +13,18 @@ export function getAdminToken(): string | null {
     localStorage.removeItem(ADMIN_USER_KEY);
     return null;
   }
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      localStorage.removeItem(ADMIN_TOKEN_KEY);
+      localStorage.removeItem(ADMIN_USER_KEY);
+      return null;
+    }
+  } catch {
+    localStorage.removeItem(ADMIN_TOKEN_KEY);
+    localStorage.removeItem(ADMIN_USER_KEY);
+    return null;
+  }
   return token;
 }
 
