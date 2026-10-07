@@ -53,7 +53,17 @@ export default function RoleSelection({ onSelectRole, onLock, onChangePasscode, 
         path: '/parliament',
         iconName: 'Crown',
       },
-      // 4. Constituency Incharge
+      // 4. District Incharge
+      {
+        id: 'DISTRICT_INCHARGE' as any,
+        levelKey: 'DISTRICT',
+        name: t('DISTRICT', 'District Incharge'),
+        subtitle: `${config.stateName || 'District'} DCC Office`,
+        description: 'District level committee & multi-constituency oversight.',
+        path: '/constituency',
+        iconName: 'Building',
+      },
+      // 5. Constituency Incharge
       {
         id: 'CONSTITUENCY_INCHARGE',
         levelKey: 'CONSTITUENCY',

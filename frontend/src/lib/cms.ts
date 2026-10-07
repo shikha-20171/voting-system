@@ -317,6 +317,7 @@ export const DEFAULT_CONFIG: CmsConfig = {
     STATE: 'State Incharge',
     ZONE: 'Zone Coordinator',
     PARLIAMENT: 'Parliament Incharge',
+    DISTRICT: 'District Incharge',
     CONSTITUENCY: 'Constituency Incharge',
     MANDAL: 'Mandal President',
     VILLAGE: 'Village Incharge',

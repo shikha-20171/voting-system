@@ -168,6 +168,33 @@ export function CmsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadData();
+
+    // Live sync when an application is published from Admin CMS
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kdp_cms_published' || e.key === 'kdp_cms_config') {
+        loadData();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        bc = new BroadcastChannel('kdp_cms_events');
+        bc.onmessage = (event) => {
+          if (event.data?.type === 'PUBLISH_APPLICATION' || event.data?.type === 'CONFIG_UPDATED') {
+            loadData(event.data?.appId);
+          }
+        };
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      try {
+        bc?.close();
+      } catch {}
+    };
   }, []);
 
   // Update document title, favicon, and CSS variables when config changes

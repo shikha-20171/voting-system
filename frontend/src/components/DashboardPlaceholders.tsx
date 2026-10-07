@@ -20,6 +20,7 @@ export default function DashboardPlaceholders({ session, onLogout }: DashboardPl
     STATE_ADMIN: "State Administrator",
     ZONE_INCHARGE: "Zone In-Charge",
     PARLIAMENT_INCHARGE: "Parliament In-Charge",
+    DISTRICT_INCHARGE: "District In-Charge",
     CONSTITUENCY_INCHARGE: "Constituency Incharge (Assembly Command)",
     MANDAL_INCHARGE: "Mandal President (Mandal Command)",
     VILLAGE_INCHARGE: "Village Incharge (Village Command)",

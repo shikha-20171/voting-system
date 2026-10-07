@@ -117,6 +117,20 @@ export default function ApplicationManagement({
       await onCreateApp(formData);
       const appName = formData.name;
       const partyCode = formData.partyCode;
+      localStorage.setItem('kdp_cms_published', Date.now().toString());
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('kdp_cms_events');
+          bc.postMessage({
+            type: 'PUBLISH_APPLICATION',
+            partyCode,
+            activeHierarchyLevels: formData.activeHierarchyLevels,
+          });
+          setTimeout(() => {
+            try { bc.close(); } catch {}
+          }, 1000);
+        }
+      } catch {}
       setJustCreatedId(partyCode);
       setCurrentPage(1);
       setModalOpen(false);
@@ -533,7 +547,7 @@ export default function ApplicationManagement({
                   disabled={saving}
                   className="px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs shadow-lg shadow-amber-400/20 transition disabled:opacity-50 cursor-pointer flex items-center gap-2"
                 >
-                  {saving ? 'Creating Application...' : 'Create & Provision Tenant'}
+                  {saving ? 'Publishing & Building...' : 'Publish & Build Application'}
                 </button>
               </div>
             </form>

@@ -525,6 +525,7 @@ export async function cmsRoutes(fastify: FastifyInstance) {
         STATE: 'State',
         ZONE: 'Zone',
         PARLIAMENT: 'Parliament',
+        DISTRICT: 'District',
         CONSTITUENCY: 'Constituency',
         MANDAL: 'Mandal',
         VILLAGE: 'Village',
@@ -558,6 +559,12 @@ export async function cmsRoutes(fastify: FastifyInstance) {
       const updatedConfig = await persistCmsConfig({
         ...configPayload,
         configKey: tenantConfigKey,
+      });
+
+      // Synchronize the primary default configuration so the application immediately reflects published roles
+      await persistCmsConfig({
+        ...configPayload,
+        configKey: 'default',
       });
 
 

@@ -45,6 +45,7 @@ const ROUTE_BY_ROLE: Record<RoleType, string> = {
   STATE_ADMIN: '/state',
   ZONE_INCHARGE: '/zone',
   PARLIAMENT_INCHARGE: '/parliament',
+  DISTRICT_INCHARGE: '/constituency',
   CONSTITUENCY_INCHARGE: '/constituency',
   MANDAL_INCHARGE: '/mandal',
   VILLAGE_INCHARGE: '/village',
@@ -205,6 +206,7 @@ export default function App({ initialPath }: { initialPath?: string } = {}) {
     STATE_ADMIN: 'STATE',
     ZONE_INCHARGE: 'ZONE',
     PARLIAMENT_INCHARGE: 'PARLIAMENT',
+    DISTRICT_INCHARGE: 'DISTRICT',
     CONSTITUENCY_INCHARGE: 'CONSTITUENCY',
     MANDAL_INCHARGE: 'MANDAL',
     VILLAGE_INCHARGE: 'VILLAGE',
@@ -349,6 +351,7 @@ export default function App({ initialPath }: { initialPath?: string } = {}) {
           return <StateDashboard session={activeSession} onLogout={handleLogout} />;
         case 'ZONE_INCHARGE':
         case 'PARLIAMENT_INCHARGE':
+        case 'DISTRICT_INCHARGE':
           return <ZoneParliamentDashboard session={activeSession} onLogout={handleLogout} />;
         case 'CONSTITUENCY_INCHARGE':
         case 'VIEWER':

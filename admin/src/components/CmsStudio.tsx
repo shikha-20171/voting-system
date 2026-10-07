@@ -813,7 +813,22 @@ export default function CmsStudio({ isOpen, onClose, onOpenRoleModules, onAppBui
         role: returnedCreds.role,
       });
 
-      notify.success('Application branding, isolated tenant, and candidate account successfully registered in DB!', 'Tenant Provisioned');
+      localStorage.setItem('kdp_cms_published', Date.now().toString());
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('kdp_cms_events');
+          bc.postMessage({
+            type: 'PUBLISH_APPLICATION',
+            appId: buildRes?.application?.id || calculatedTenantCode,
+            activeHierarchyLevels: selectedHierarchyLevels,
+          });
+          setTimeout(() => {
+            try { bc.close(); } catch {}
+          }, 1000);
+        }
+      } catch {}
+
+      notify.success('Application published and built with your selected role hierarchy!', 'Application Published');
     } catch (err) {
       console.error('Failed to build application:', err);
       setIsBuilding(false);
@@ -1983,7 +1998,7 @@ export default function CmsStudio({ isOpen, onClose, onOpenRoleModules, onAppBui
           </section>
 
           {/* ============================================================ */}
-          {/* SUBMIT / BUILD APPLICATION BUTTON */}
+          {/* PUBLISH / BUILD APPLICATION BUTTON */}
           {/* ============================================================ */}
           <div className="pt-4 border-t border-slate-800">
             <button
@@ -1995,23 +2010,23 @@ export default function CmsStudio({ isOpen, onClose, onOpenRoleModules, onAppBui
               {isBuilding ? (
                 <>
                   <RefreshCw className="w-5 h-5 animate-spin text-slate-950" />
-                  <span>Generating Application & Provisioning Entities...</span>
+                  <span>Publishing Application & Building Hierarchy...</span>
                 </>
               ) : buildSuccess ? (
                 <>
                   <Check className="w-5 h-5 text-slate-950" />
-                  <span>Application Built! Opening Role-Based Modules...</span>
+                  <span>Application Published! Opening Role-Based Modules...</span>
                 </>
               ) : (
                 <>
                   <Sparkles className="w-5 h-5 fill-slate-950" />
-                  <span>Submit / Build Application</span>
+                  <span>Publish & Build Application</span>
                   <ArrowRight className="w-5 h-5" />
                 </>
               )}
             </button>
             <p className="text-center text-xs text-slate-400 font-medium mt-2">
-              Automatically builds the application and redirects to the role-based module page with only your configured hierarchy levels.
+              Publishes configuration to the live voting platform and builds only your selected role hierarchy tiers.
             </p>
           </div>
         </div>
@@ -2177,7 +2192,7 @@ export default function CmsStudio({ isOpen, onClose, onOpenRoleModules, onAppBui
               className="w-full py-2.5 px-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60 shadow-lg shadow-amber-400/20"
             >
               <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
-              <span>Submit / Build Application</span>
+              <span>Publish & Build Application</span>
             </button>
           </div>
         </div>
@@ -2284,19 +2299,19 @@ export default function CmsStudio({ isOpen, onClose, onOpenRoleModules, onAppBui
 
                 <div className="text-[11px] text-slate-400 flex items-center gap-2 pt-1">
                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Candidate logs in directly on Port 3000 using their verified mobile number.</span>
+                  <span>Candidate logs in directly on the platform using their verified mobile number.</span>
                 </div>
               </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <a
-                href="http://localhost:3000"
+                href={typeof window !== 'undefined' && window.location.port === '3001' ? 'http://localhost:5173' : (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5173` : 'http://localhost:5173')}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 py-3 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs text-center flex items-center justify-center gap-2 shadow-lg shadow-amber-400/20 cursor-pointer"
               >
-                <span>Launch Party App (Port 3000)</span>
+                <span>Launch Voting App (Port 5173)</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
               <button
