@@ -5,6 +5,7 @@ export const requestOtpSchema = z.object({
   mobileNumber: z.string().min(10, 'Mobile number must be at least 10 digits').max(15),
   role: z.nativeEnum(RoleType).optional(),
   channel: z.enum(['SMS', 'WHATSAPP', 'sms', 'whatsapp']).optional().default('WHATSAPP'),
+  devMode: z.boolean().optional(),
 });
 
 export const registerOtpSchema = z.object({

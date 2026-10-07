@@ -4,20 +4,22 @@ import { getOrCreateDeviceId, setDeviceToken, clearDeviceToken } from '../authSt
 export async function requestOtpApi(
   mobileNumber: string,
   role: string,
-  channel: 'SMS' | 'WHATSAPP' = 'WHATSAPP'
-): Promise<{ requestId: string; expiresAt?: string; cooldownSeconds?: number; provider?: string; channel?: string; message?: string }> {
+  channel: 'SMS' | 'WHATSAPP' = 'WHATSAPP',
+  devMode = true
+): Promise<{ requestId: string; expiresAt?: string; cooldownSeconds?: number; provider?: string; channel?: string; message?: string; devOtp?: string }> {
   return apiFetch('/api/auth/request-otp', {
     method: 'POST',
-    body: JSON.stringify({ mobileNumber, role, channel }),
+    body: JSON.stringify({ mobileNumber, role, channel, devMode }),
   });
 }
 
 export async function requestOtp(
   mobileNumber: string,
   role: string,
-  channel: 'SMS' | 'WHATSAPP' = 'WHATSAPP'
+  channel: 'SMS' | 'WHATSAPP' = 'WHATSAPP',
+  devMode = true
 ) {
-  return requestOtpApi(mobileNumber, role, channel);
+  return requestOtpApi(mobileNumber, role, channel, devMode);
 }
 
 export async function verifyOtpApi(
