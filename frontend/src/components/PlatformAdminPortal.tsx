@@ -547,11 +547,33 @@ export default function PlatformAdminPortal() {
   const defaultApp = apps.find((a) => a.isDefault);
 
   return (
-    <div id="platform-admin-root" className="min-h-screen bg-slate-900/90 p-3 sm:p-6 font-sans antialiased flex justify-center items-start">
-      <div className="w-full max-w-7xl bg-slate-100 rounded-[28px] shadow-2xl border border-slate-300 overflow-hidden">
-        {/* Dark Blue Header */}
-        <div className="bg-[#0F172A] text-white px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800">
-          <div className="flex items-center gap-3">
+    <div id="platform-admin-root" className="min-h-screen bg-slate-950 font-sans antialiased flex flex-col md:flex-row text-slate-100">
+      {/* ============================================================== */}
+      {/* LEFT SIDEBAR NAVIGATION (CMS APPLICATION SIDEBAR) */}
+      {/* ============================================================== */}
+      <aside className="w-full md:w-72 bg-[#0F172A] border-r border-slate-800 flex flex-col justify-between shrink-0 select-none z-30">
+        <div>
+          {/* Top Brand & Return Link */}
+          <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20 shrink-0">
+                <Settings className="w-5 h-5 text-slate-950 fill-slate-950" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-black text-white tracking-wider uppercase truncate">
+                    CMS CONSOLE
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/30 shrink-0">
+                    APEX
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium truncate">
+                  {config.organisationName || 'Platform'} Admin
+                </p>
+              </div>
+            </div>
+
             <button
               onClick={() => {
                 if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -560,91 +582,160 @@ export default function PlatformAdminPortal() {
                   window.location.hash = '/roles';
                 }
               }}
-              className="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-200 transition-colors shadow-xs cursor-pointer"
-              title="Return"
+              className="w-8 h-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+              title="Return to Role Command Center"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <Settings className="w-5 h-5 text-amber-400" />
-                <h1 className="font-bold text-lg md:text-xl tracking-tight text-white">
-                  {config.organisationName || 'Kondapi'} Platform Administration
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-slate-950 shadow-xs">
-                  MULTI-TENANT ENGINE
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 font-normal mt-0.5">
-                Configure, deploy, and isolate branded constituency applications from the master template
-              </p>
+          </div>
+
+          {/* Database & Tenant Status Pill */}
+          <div className="mx-4 mt-3 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2 text-slate-300">
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="font-semibold">{selectedApp?.partyCode || 'TDP'} Tenant</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>LIVE</span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setView('list')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs md:text-sm transition-all cursor-pointer ${
-                view === 'list'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white font-medium'
-              }`}
-            >
-              Manage Applications
-            </button>
-            <button
-              onClick={() => setView('create')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs md:text-sm transition-all cursor-pointer ${
-                view === 'create'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white font-medium'
-              }`}
-            >
-              Create New App
-            </button>
-            <button
-              onClick={() => setView('assign-data')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs md:text-sm transition-all cursor-pointer ${
-                view === 'assign-data'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white font-medium'
-              }`}
-            >
-              Assign Data
-            </button>
-            <button
-              onClick={() => setView('assign-incharges')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs md:text-sm transition-all cursor-pointer ${
-                view === 'assign-incharges'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white font-medium'
-              }`}
-            >
-              Assign Incharges
-            </button>
-            <button
-              onClick={() => setView('approvals')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs md:text-sm transition-all cursor-pointer flex items-center gap-1.5 ${
-                view === 'approvals'
-                  ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
-                  : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white font-medium'
-              }`}
-            >
-              <ClipboardCheck className="w-3.5 h-3.5" />
-              <span>Approval Queue</span>
-            </button>
-            <button
-              onClick={() => window.open('http://localhost:3001', '_blank', 'noopener,noreferrer')}
-              className="px-3.5 py-1.5 rounded-xl text-xs md:text-sm bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-400/30 transition-all flex items-center gap-1.5 font-bold cursor-pointer shadow-xs"
-              title="Launch dedicated Standalone CMS & Admin Console on Port 3001"
-            >
-              <span>Standalone Console (Port 3001)</span>
-              <ExternalLink className="w-3.5 h-3.5 text-amber-400" />
-            </button>
-          </div>
+
+          {/* Navigation Links in Left Sidebar */}
+          <nav className="p-3 space-y-1 mt-2">
+            {[
+              {
+                id: 'list' as const,
+                label: 'Manage Applications',
+                subtitle: 'Tenants & hierarchy configuration',
+                icon: Layers,
+                badge: apps.length > 0 ? `${apps.length}` : null,
+              },
+              {
+                id: 'create' as const,
+                label: 'Create New App',
+                subtitle: 'Provision isolated tenant',
+                icon: Plus,
+                badge: null,
+              },
+              {
+                id: 'assign-data' as const,
+                label: 'Assign Data',
+                subtitle: 'Voter rolls & GIS ingestion',
+                icon: Database,
+                badge: null,
+              },
+              {
+                id: 'assign-incharges' as const,
+                label: 'Assign Incharges',
+                subtitle: 'Hierarchy cadre deployment',
+                icon: Users,
+                badge: null,
+              },
+              {
+                id: 'approvals' as const,
+                label: 'Approval Queue',
+                subtitle: 'Voter & cadre verification',
+                icon: ClipboardCheck,
+                badge: null,
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = view === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setView(item.id)}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all duration-200 cursor-pointer ${
+                    isActive
+                      ? 'bg-gradient-to-r from-amber-500/20 to-amber-500/5 text-amber-400 border border-amber-500/30 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/80 border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-amber-400' : 'text-slate-400'}`} />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">{item.label}</div>
+                      <div className="text-[10px] text-slate-500 truncate">{item.subtitle}</div>
+                    </div>
+                  </div>
+                  {item.badge && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
+        {/* Bottom Sidebar: Standalone Console Link & System Info */}
+        <div className="p-4 border-t border-slate-800 space-y-3">
+          <button
+            onClick={() => window.open('http://localhost:3001', '_blank', 'noopener,noreferrer')}
+            className="w-full p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/30 transition-all flex items-center justify-between font-bold text-xs cursor-pointer shadow-xs"
+            title="Launch dedicated Standalone CMS & Admin Console on Port 3001"
+          >
+            <div className="flex items-center gap-2">
+              <ExternalLink className="w-4 h-4 text-amber-400" />
+              <span>Standalone Admin</span>
+            </div>
+            <span className="text-[10px] font-mono text-amber-400/80">:3001</span>
+          </button>
+
+          <button
+            onClick={() => {
+              window.location.hash = '/roles';
+            }}
+            className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-900 text-xs font-semibold transition cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Return to User Portal</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ============================================================== */}
+      {/* MAIN ADMINISTRATIVE CANVAS ON RIGHT */}
+      {/* ============================================================== */}
+      <div className="flex-1 flex flex-col min-w-0 bg-slate-100 overflow-y-auto">
+        {/* Top Telemetry Header Bar */}
+        <header className="h-16 px-6 bg-slate-900 text-white border-b border-slate-800 flex items-center justify-between sticky top-0 z-20">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2">
+              {view === 'list' && <span>Manage Applications</span>}
+              {view === 'create' && <span>Create New Party Application</span>}
+              {view === 'assign-data' && <span>Data Ingestion & GIS Assignment</span>}
+              {view === 'assign-incharges' && <span>Incharge Cadre Deployment</span>}
+              {view === 'approvals' && <span>Approval Queue & Verification</span>}
+            </h2>
+            <span className="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-400/10 text-amber-400 border border-amber-400/20">
+              {config.organisationName || 'Kondapi Platform'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {selectedApp && (
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Active: {selectedApp.name} ({selectedApp.partyCode})</span>
+              </div>
+            )}
+            <button
+              onClick={() => {
+                window.location.hash = '/roles';
+              }}
+              className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs transition cursor-pointer flex items-center gap-1.5 shadow-sm shadow-amber-400/20"
+            >
+              <span>User Portal</span>
+              <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+            </button>
+          </div>
+        </header>
+
         {/* Main Content Body */}
-        <div className="p-4 sm:p-6 bg-slate-50">
+        <div className="p-4 sm:p-6 bg-slate-50 flex-1">
           {view === 'approvals' ? (
             <ApprovalManagementModule
               partyId={selectedApp?.partyCode || selectedApp?.id}

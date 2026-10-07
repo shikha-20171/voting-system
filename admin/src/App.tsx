@@ -282,13 +282,13 @@ export default function App() {
             </div>
 
             <a
-              href={selectedApp?.id ? `http://localhost:3000/?appId=${encodeURIComponent(selectedApp.id)}&tenant=${encodeURIComponent(selectedApp.partyCode)}` : 'http://localhost:3000'}
+              href={selectedApp?.id ? `http://localhost:5173/?appId=${encodeURIComponent(selectedApp.id)}&tenant=${encodeURIComponent(selectedApp.partyCode)}` : 'http://localhost:5173'}
               target="_blank"
               rel="noopener noreferrer"
               className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold transition flex items-center gap-1.5 shadow-sm shadow-amber-400/20"
               title="Launch selected party application in user portal"
             >
-              <span>Launch App (Port 3000)</span>
+              <span>Launch App (Port 5173)</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
