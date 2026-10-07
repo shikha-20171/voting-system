@@ -10,6 +10,18 @@ let activeWhatsAppInstance: SmsProvider | null = null;
 export class SmsProviderFactory {
   static getProvider(channel: string = 'SMS'): SmsProvider {
     const norm = (channel || 'SMS').toUpperCase();
+
+    // Smart OTP handles WhatsApp/SMS routing inside Fast2SMS using the configured OTP ID.
+    if (process.env.SMS_PROVIDER === 'fast2sms' || process.env.FAST2SMS_API_KEY) {
+      if (!activeProviderInstance) {
+        activeProviderInstance = new Fast2SmsProvider({
+          apiKey: process.env.FAST2SMS_API_KEY || '',
+          otpId: process.env.FAST2SMS_OTP_ID || '',
+          otpExpiryMinutes: Number(process.env.FAST2SMS_OTP_EXPIRY_MINUTES || 5),
+        });
+      }
+      return activeProviderInstance;
+    }
     if (norm === 'WHATSAPP') {
       if (activeWhatsAppInstance) {
         return activeWhatsAppInstance;
@@ -49,6 +61,8 @@ export class SmsProviderFactory {
     if (!hasValidMsg91 && process.env.FAST2SMS_API_KEY) {
       activeProviderInstance = new Fast2SmsProvider({
         apiKey: process.env.FAST2SMS_API_KEY,
+        otpId: process.env.FAST2SMS_OTP_ID || '',
+        otpExpiryMinutes: Number(process.env.FAST2SMS_OTP_EXPIRY_MINUTES || 5),
       });
       return activeProviderInstance;
     }

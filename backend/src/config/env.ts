@@ -16,15 +16,17 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('*'),
 
   // OTP Configuration & Security Policies
-  OTP_STATIC_CODE: z.string().default('123456'),
   OTP_EXPIRY_MS: z.coerce.number().default(300000), // 5 minutes
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
   OTP_RESEND_COOLDOWN_MS: z.coerce.number().default(60000), // 60 seconds
   OTP_RATE_LIMIT_MAX: z.coerce.number().default(5), // 5 requests per window
   OTP_RATE_LIMIT_WINDOW_MS: z.coerce.number().default(900000), // 15 minutes
 
-  // SMS Gateway Configuration (Production: MSG91 ONLY)
-  SMS_PROVIDER: z.string().default('msg91'),
+  // Fast2SMS Smart OTP (configure OTP ID as WhatsApp-first in Fast2SMS panel)
+  SMS_PROVIDER: z.enum(['fast2sms', 'msg91']).default('fast2sms'),
+  FAST2SMS_API_KEY: z.string().optional(),
+  FAST2SMS_OTP_ID: z.string().optional(),
+  FAST2SMS_OTP_EXPIRY_MINUTES: z.coerce.number().min(1).max(10080).default(5),
   MSG91_AUTH_KEY: z.string().optional(),
   MSG91_TEMPLATE_ID: z.string().optional(),
   SMS_SENDER_ID: z.string().default('KNDTDP'),
@@ -42,14 +44,6 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
 }).superRefine((data, ctx) => {
-  // Reject non-msg91 SMS providers in all environments
-  if (data.SMS_PROVIDER !== 'msg91') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'SMS_PROVIDER must be "msg91". Only MSG91 is supported as the SMS provider.',
-      path: ['SMS_PROVIDER'],
-    });
-  }
 
   if (data.NODE_ENV === 'production') {
     const defaultSecrets = [
@@ -145,22 +139,13 @@ const envSchema = z.object({
       });
     }
 
-    const rawMsg91AuthKey = (data.MSG91_AUTH_KEY || process.env.MSG91_AUTH_KEY || process.env.SMS_API_KEY || '').trim();
-    if (!rawMsg91AuthKey) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'MSG91_AUTH_KEY must be explicitly provided in environment variables for production.',
-        path: ['MSG91_AUTH_KEY'],
-      });
-    }
-
-    const rawMsg91TemplateId = (data.MSG91_TEMPLATE_ID || process.env.MSG91_TEMPLATE_ID || process.env.SMS_TEMPLATE_ID || '').trim();
-    if (!rawMsg91TemplateId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'MSG91_TEMPLATE_ID must be explicitly provided in environment variables for production.',
-        path: ['MSG91_TEMPLATE_ID'],
-      });
+    if (data.SMS_PROVIDER === 'fast2sms') {
+      if (!(data.FAST2SMS_API_KEY || '').trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'FAST2SMS_API_KEY is required in production.', path: ['FAST2SMS_API_KEY'] });
+      }
+      if (!(data.FAST2SMS_OTP_ID || '').trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'FAST2SMS_OTP_ID is required in production.', path: ['FAST2SMS_OTP_ID'] });
+      }
     }
   }
 });

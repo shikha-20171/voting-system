@@ -8,7 +8,7 @@
     "admin"
   ],
   "scripts": {
-    "dev": "npm --prefix backend run dev & npm --prefix frontend run dev",
+    "dev": "npm --prefix backend run dev & npm --prefix frontend run dev & npm --prefix admin run dev",
     "dev:admin": "npm --prefix admin run dev",
     "dev:all": "npm --prefix backend run dev & npm --prefix frontend run dev & npm --prefix admin run dev",
     "start": "npm --prefix backend run start & npm --prefix frontend run start",

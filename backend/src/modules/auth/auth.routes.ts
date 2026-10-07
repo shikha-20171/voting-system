@@ -14,21 +14,6 @@ import {
 import { AuthController } from './auth.controller.js';
 
 export async function authRoutes(fastify: FastifyInstance) {
-  // Fast 1-Click Demo Authentication (Role-based instant test access)
-  fastify.post(
-    '/demo-login',
-    {
-      config: {
-        rateLimit: {
-          max: process.env.NODE_ENV === 'test' ? 100 : 60,
-          timeWindow: '1 minute',
-        },
-      },
-      preValidation: [validateBody(demoLoginSchema)],
-    },
-    AuthController.demoLogin,
-  );
-
   // Authoritative Administrator Login (Password / Passcode Verification)
   fastify.post(
     '/admin-login',
@@ -41,6 +26,21 @@ export async function authRoutes(fastify: FastifyInstance) {
       },
     },
     AuthController.adminLogin,
+  );
+
+  // Instant Demo Login for Testing and Admin Console
+  fastify.post(
+    '/demo-login',
+    {
+      config: {
+        rateLimit: {
+          max: process.env.NODE_ENV === 'test' ? 100 : 30,
+          timeWindow: '1 minute',
+        },
+      },
+      preValidation: [validateBody(demoLoginSchema)],
+    },
+    AuthController.demoLogin,
   );
 
   // Silent device-based auto-login (Zomato/Uber/Ola persistent device session)

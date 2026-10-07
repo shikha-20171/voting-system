@@ -137,38 +137,6 @@ export class OtpService {
   }
 
   /**
-   * Prominently displays the real OTP dispatch in the backend terminal for local dev and testing.
-   */
-  static printTerminalOtp(params: {
-    mobileNumber: string;
-    rawOtp: string;
-    purpose?: string;
-    userName?: string;
-    role?: string;
-    channel?: string;
-  }): void {
-    const divider = '═'.repeat(68);
-    const now = new Date().toLocaleTimeString('en-IN', { hour12: true });
-    console.log(`\n${divider}`);
-    console.log(` 📲 [TERMINAL OTP DISPATCH] ─── ${now}`);
-    console.log(` 📱 Mobile Number:  +91 ${params.mobileNumber}`);
-    console.log(` 🔑 6-Digit OTP:    ${params.rawOtp}   <── ENTER THIS CODE TO VERIFY`);
-    if (params.userName) {
-      console.log(` 👤 Account User:   ${params.userName}`);
-    }
-    if (params.role) {
-      console.log(` 🛡️  Role / Level:   ${params.role}`);
-    }
-    if (params.purpose) {
-      console.log(` 🎯 Purpose:        ${params.purpose}`);
-    }
-    console.log(` 📡 Channel:        ${params.channel || 'SMS'} (Dispatched / Terminal Output)`);
-    console.log(` ⏰ Valid For:      5 minutes`);
-    console.log(` 🔒 Security Hash:  Persisted in PostgreSQL oTPVerification`);
-    console.log(`${divider}\n`);
-  }
-
-  /**
    * Atomically validates and consumes the OTP submission.
    * Enforces atomic database-level consumption and attempt counter concurrency controls.
    */
@@ -202,15 +170,7 @@ export class OtpService {
     }
 
     // 4. Timing-safe cryptographic comparison
-    let isValid = verifyOtpHash(otpCode, record.mobileNumber, record.otpCode);
-    const demoNumbers = [
-      '9848012345', '9848088888', '9848088887', '9848099998', '9848099999',
-      '9848077777', '9848010001', '9848010002', '9848010003', '9848010004',
-      '9848010005', '9998887777', '9736654406'
-    ];
-    if (!isValid && otpCode === '123456' && demoNumbers.includes(record.mobileNumber)) {
-      isValid = true;
-    }
+    const isValid = verifyOtpHash(otpCode, record.mobileNumber, record.otpCode);
 
     if (!isValid) {
       // Atomic attempt counter increment conditional on attempts < MAX_ATTEMPTS

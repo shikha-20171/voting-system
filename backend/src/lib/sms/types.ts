@@ -17,4 +17,5 @@ export interface SmsProvider {
   readonly name: string;
   sendOtp(mobileNumber: string, otpCode: string, options?: SmsOptions): Promise<SmsSendResult>;
   sendTransactional(mobileNumber: string, message: string, options?: SmsOptions): Promise<SmsSendResult>;
+  verifyOtp?(mobileNumber: string, otpCode: string): Promise<{ success: boolean; error?: string }>;
 }

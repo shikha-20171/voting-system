@@ -2,7 +2,7 @@
  * Single Responsibility Principle (SRP) Modular API Architecture.
  * Decomposed into specialized domain client services under ./api/:
  * - client: Base HTTP apiFetch & token injection
- * - auth: OTP lifecycle, sessions, demo mocks
+ * - auth: WhatsApp OTP lifecycle and secure sessions
  * - voters: Voter queries, mutations, bulk import
  * - analytics: Turnout metrics, hierarchy snapshots
  * - tasks: Task assignments & status tracking

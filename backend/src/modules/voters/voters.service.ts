@@ -98,9 +98,12 @@ export class VotersService {
       if (scope.role === 'VOTER_100_INCHARGE') {
         const groupIds = Array.from(scope.accessibleVoterGroupIds);
         if (groupIds.length > 0) {
-          where.OR = [
-            { voterGroupId: { in: groupIds } },
-            { assignedInchargeId: scope.userId },
+          where.AND = [
+            ...(Array.isArray(where.AND) ? where.AND : []),
+            { OR: [
+              { voterGroupId: { in: groupIds } },
+              { assignedInchargeId: scope.userId },
+            ] },
           ];
         } else {
           where.assignedInchargeId = scope.userId;
@@ -128,13 +131,16 @@ export class VotersService {
 
     if (search) {
       const isNum = !isNaN(Number(search));
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { epicNumber: { contains: search, mode: 'insensitive' } },
-        { fatherHusbandName: { contains: search, mode: 'insensitive' } },
-        { houseNumber: { contains: search, mode: 'insensitive' } },
-        { mobileNumber: { contains: search } },
-        ...(isNum ? [{ serialNumber: Number(search) }] : []),
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        { OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { epicNumber: { contains: search, mode: 'insensitive' } },
+          { fatherHusbandName: { contains: search, mode: 'insensitive' } },
+          { houseNumber: { contains: search, mode: 'insensitive' } },
+          { mobileNumber: { contains: search } },
+          ...(isNum ? [{ serialNumber: Number(search) }] : []),
+        ] },
       ];
     }
 

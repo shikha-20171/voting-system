@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { successResponse, errorResponse } from '../../common/response.js';
 import { validateBody } from '../../common/validation.js';
-import { optionalAuthenticate } from '../../middleware/auth.js';
+import { authenticate } from '../../middleware/auth.js';
 import {
   createApprovalSchema,
   rejectApprovalSchema,
@@ -11,7 +11,7 @@ import { ApprovalsService } from './approvals.service.js';
 
 export async function approvalsRoutes(fastify: FastifyInstance) {
   // 1. Get approval stats (Pending counts per category)
-  fastify.get('/stats', { preHandler: [optionalAuthenticate] }, async (req: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/stats', { preHandler: [authenticate] }, async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = (req.query || {}) as { partyId?: string };
       const stats = await ApprovalsService.getStats(query.partyId);
@@ -22,7 +22,7 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
   });
 
   // 2. List approvals with filters
-  fastify.get('/', { preHandler: [optionalAuthenticate] }, async (req: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/', { preHandler: [authenticate] }, async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       const query = (req.query || {}) as {
         partyId?: string;
@@ -48,7 +48,7 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
   fastify.post(
     '/',
     {
-      preHandler: [optionalAuthenticate],
+      preHandler: [authenticate],
       preValidation: [validateBody(createApprovalSchema)],
     },
     async (req: FastifyRequest, reply: FastifyReply) => {
@@ -67,7 +67,7 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
     try {
       const { id } = req.params as { id: string };
       const user = (req as any).user;
-      const actionedBy = user?.name || user?.role || 'Party Super Admin';
+      const actionedBy = user.name || user.role;
       const result = await ApprovalsService.approve(id, actionedBy);
       return reply.send(successResponse(result, 'Approval request approved'));
     } catch (err: any) {
@@ -75,8 +75,8 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
     }
   };
 
-  fastify.patch('/:id/approve', { preHandler: [optionalAuthenticate] }, approveHandler);
-  fastify.post('/:id/approve', { preHandler: [optionalAuthenticate] }, approveHandler);
+  fastify.patch('/:id/approve', { preHandler: [authenticate] }, approveHandler);
+  fastify.post('/:id/approve', { preHandler: [authenticate] }, approveHandler);
 
   // 5. Reject request
   const rejectHandler = async (req: FastifyRequest, reply: FastifyReply) => {
@@ -84,7 +84,7 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = (req.body || {}) as { reason?: string };
       const user = (req as any).user;
-      const actionedBy = user?.name || user?.role || 'Party Super Admin';
+      const actionedBy = user.name || user.role;
       const result = await ApprovalsService.reject(id, body.reason || 'Rejected by Admin', actionedBy);
       return reply.send(successResponse(result, 'Approval request rejected'));
     } catch (err: any) {
@@ -92,6 +92,6 @@ export async function approvalsRoutes(fastify: FastifyInstance) {
     }
   };
 
-  fastify.patch('/:id/reject', { preHandler: [optionalAuthenticate], preValidation: [validateBody(rejectApprovalSchema)] }, rejectHandler);
-  fastify.post('/:id/reject', { preHandler: [optionalAuthenticate] }, rejectHandler);
+  fastify.patch('/:id/reject', { preHandler: [authenticate], preValidation: [validateBody(rejectApprovalSchema)] }, rejectHandler);
+  fastify.post('/:id/reject', { preHandler: [authenticate], preValidation: [validateBody(rejectApprovalSchema)] }, rejectHandler);
 }

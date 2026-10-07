@@ -2,7 +2,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AuditAction, OrgHierarchyLevel, Prisma, RoleType, TaskPriority, TaskStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { successResponse } from '../../common/response.js';
+import { errorResponse, successResponse } from '../../common/response.js';
 import { validateBody } from '../../common/validation.js';
 import { authenticate, optionalAuthenticate } from '../../middleware/auth.js';
 import { populateHierarchyScope, requireRoles } from '../../middleware/rbac.js';
@@ -567,7 +567,10 @@ export async function cmsRoutes(fastify: FastifyInstance) {
       const candidateMobile = rawCandidateMobile.replace(/\D/g, '').slice(-10) || '9848012345';
       const candidateEmail = (body as any).candidateEmail?.trim().toLowerCase() || `candidate@${(body.appName || 'party').toLowerCase().replace(/[^a-z0-9]/g, '')}.org`;
       const candidateName = (body as any).candidateName?.trim() || 'Key Candidate';
-      const initialPassword = (body as any).password?.trim() || 'Kondapi@2026';
+      const initialPassword = (body as any).password?.trim();
+      if (!initialPassword || initialPassword.length < 12) {
+        return reply.status(400).send(errorResponse('A strong initial password of at least 12 characters is required.'));
+      }
       const passwordHash = await bcrypt.hash(initialPassword, 10);
 
       const stateUnitRecord = await prisma.organizationUnit.findFirst({
